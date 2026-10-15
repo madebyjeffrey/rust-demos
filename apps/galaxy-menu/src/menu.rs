@@ -1,3 +1,5 @@
+//! Sparse placeholder menu shown alongside the galaxy scene.
+
 use bevy::prelude::*;
 
 const BACKGROUND: Color = Color::srgb(0.025, 0.035, 0.09);
@@ -6,6 +8,7 @@ const PRIMARY_TEXT: Color = Color::srgb(0.98, 0.83, 0.6);
 const SECONDARY_TEXT: Color = Color::srgb(0.61, 0.68, 0.79);
 const QUIET_TEXT: Color = Color::srgb(0.39, 0.47, 0.61);
 
+/// Identifies a visual menu action; no action behavior is attached in this prototype.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MenuAction {
     NewGame,
@@ -14,12 +17,14 @@ pub enum MenuAction {
     Quit,
 }
 
+/// Lets tests and presentation code distinguish the two levels of menu emphasis.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MenuEmphasis {
     Primary,
     Secondary,
 }
 
+/// Adds the menu shell and its four placeholder actions to the app.
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {

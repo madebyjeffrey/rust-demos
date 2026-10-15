@@ -1,3 +1,5 @@
+//! Coordinates pointer capture, planet selection, and the presentation of interaction state.
+
 use bevy::{
     picking::Pickable,
     prelude::*,
@@ -7,54 +9,39 @@ use bevy::{
 
 use crate::{PlanetId, PlanetMarker};
 
-const HOVER_LABEL_COLOR: Color = Color::srgb(1.0, 0.84, 0.62);
-const HOVER_LABEL_BACKGROUND: Color = Color::srgba(0.025, 0.035, 0.09, 0.9);
-const CARD_BACKGROUND: Color = Color::srgba(0.025, 0.035, 0.09, 0.9);
-const CARD_PRIMARY: Color = Color::srgb(0.98, 0.83, 0.6);
-const CARD_SECONDARY: Color = Color::srgb(0.72, 0.77, 0.85);
-const CARD_QUIET: Color = Color::srgb(0.61, 0.68, 0.79);
+mod card;
+mod hover_label;
 
-/// A cursor ray submitted by the window adapter or a headless app test.
+pub use card::{PlanetCardDetail, PlanetCardName};
+pub use hover_label::PlanetHoverLabel;
+
+/// A world-space cursor ray. Its direction is normalized by the interaction system.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlanetCursorRay {
     pub origin: Vec3,
     pub direction: Vec3,
 }
 
-/// Narrow input seam shared by the window adapter and headless app tests.
+/// Input seam shared by the window adapter and headless app tests.
+///
+/// When a primary window exists, the window adapter refreshes these fields each frame.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct PlanetInteractionInput {
     pub cursor_ray: Option<PlanetCursorRay>,
     pub primary_just_pressed: bool,
 }
 
-/// Observable state for the currently hovered planet.
+/// Observable hover and selection state for app systems and tests.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlanetInteractionState {
     pub hovered_planet: Option<PlanetId>,
     pub selected_planet: Option<PlanetId>,
 }
 
-/// The selected planet details shown in the destination card.
+/// The selected destination that drives the destination card.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlanetCardState {
     pub planet_id: Option<PlanetId>,
-}
-
-#[derive(Component, Debug)]
-pub struct PlanetCardName;
-
-#[derive(Component, Debug)]
-pub struct PlanetCardDetail;
-
-#[derive(Component, Debug)]
-pub struct PlanetCardVisual;
-
-/// UI label that follows a planet while the cursor is over it.
-#[derive(Component, Clone, Copy, Debug)]
-pub struct PlanetHoverLabel {
-    pub planet_entity: Entity,
-    pub planet_id: PlanetId,
 }
 
 /// Emissive mesh placed around a planet while it is selected.
@@ -63,6 +50,7 @@ pub struct PlanetSelectionHighlight {
     pub planet_id: PlanetId,
 }
 
+/// Installs pointer capture, ray-based planet selection, and its UI feedback.
 pub struct PlanetInteractionPlugin;
 
 impl Plugin for PlanetInteractionPlugin {
@@ -78,108 +66,27 @@ impl Plugin for PlanetInteractionPlugin {
             .add_systems(
                 PostStartup,
                 (
-                    setup_planet_hover_labels,
+                    hover_label::setup_planet_hover_labels,
                     setup_selection_highlights,
-                    setup_planet_card,
+                    card::setup_planet_card,
                 ),
             )
             .add_systems(
                 Update,
+                // Capture first, then derive selection and synchronize its visible feedback.
                 (
                     capture_window_pointer,
                     update_hovered_planet,
                     sync_selection_highlights,
-                    update_planet_card,
+                    card::update_planet_card,
                 )
                     .chain(),
             )
             .add_systems(
                 PostUpdate,
-                position_hover_labels.after(TransformSystems::Propagate),
+                hover_label::position_hover_labels.after(TransformSystems::Propagate),
             );
     }
-}
-
-fn setup_planet_card(mut commands: Commands) {
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                right: px(42),
-                top: px(42),
-                width: px(286),
-                padding: UiRect::all(px(18)),
-                flex_direction: FlexDirection::Column,
-                row_gap: px(9),
-                border_radius: BorderRadius::all(px(12)),
-                ..default()
-            },
-            BackgroundColor(CARD_BACKGROUND),
-            ZIndex(20),
-        ))
-        .with_children(|card| {
-            card.spawn((
-                Text::new("DESTINATION"),
-                TextFont {
-                    font_size: FontSize::Px(11.0),
-                    ..default()
-                },
-                TextColor(CARD_QUIET),
-            ));
-            card.spawn((
-                Node {
-                    align_self: AlignSelf::Center,
-                    width: px(96),
-                    height: px(96),
-                    margin: UiRect::vertical(px(4)),
-                    border: UiRect::all(px(2)),
-                    border_radius: BorderRadius::all(px(48)),
-                    ..default()
-                },
-                BackgroundColor(PlanetId::Vesper.profile().card_color),
-                BorderColor::all(Color::srgba(1.0, 0.9, 0.76, 0.62)),
-                BoxShadow::new(
-                    Color::srgba(0.35, 0.74, 1.0, 0.42),
-                    px(0),
-                    px(0),
-                    px(3),
-                    px(22),
-                ),
-                PlanetCardVisual,
-            ))
-            .with_children(|planet| {
-                planet.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: px(19),
-                        top: px(15),
-                        width: px(22),
-                        height: px(16),
-                        border_radius: BorderRadius::all(px(11)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.48)),
-                ));
-            });
-            card.spawn((
-                Text::new("Select a planet"),
-                TextFont {
-                    font_size: FontSize::Px(25.0),
-                    ..default()
-                },
-                TextColor(CARD_PRIMARY),
-                PlanetCardName,
-            ));
-            card.spawn((
-                Text::new("Hover over a planet for a closer look."),
-                TextFont {
-                    font_size: FontSize::Px(14.0),
-                    ..default()
-                },
-                TextColor(CARD_SECONDARY),
-                PlanetCardDetail,
-            ));
-        });
 }
 
 fn setup_selection_highlights(
@@ -210,33 +117,6 @@ fn setup_selection_highlights(
                 },
             ));
         });
-    }
-}
-
-fn setup_planet_hover_labels(mut commands: Commands, planets: Query<(Entity, &PlanetMarker)>) {
-    for (planet_entity, planet) in &planets {
-        let profile = planet.id.profile();
-        commands.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                display: Display::None,
-                padding: UiRect::axes(px(10), px(6)),
-                border_radius: BorderRadius::all(px(6)),
-                ..default()
-            },
-            BackgroundColor(HOVER_LABEL_BACKGROUND),
-            Text::new(profile.name),
-            TextFont {
-                font_size: FontSize::Px(14.0),
-                ..default()
-            },
-            TextColor(HOVER_LABEL_COLOR),
-            PlanetHoverLabel {
-                planet_entity,
-                planet_id: planet.id,
-            },
-            ZIndex(20),
-        ));
     }
 }
 
@@ -272,6 +152,7 @@ fn update_hovered_planet(
     mut card: ResMut<PlanetCardState>,
     planets: Query<(&PlanetMarker, &GlobalTransform)>,
 ) {
+    // Normalize once so the ray/sphere distances compare correctly across planets.
     state.hovered_planet = input.cursor_ray.and_then(|ray| {
         let direction = ray.direction.try_normalize()?;
         planets
@@ -280,6 +161,7 @@ fn update_hovered_planet(
                 ray_sphere_distance(ray.origin, direction, transform.translation(), 0.38)
                     .map(|distance| (distance, planet.id))
             })
+            // The nearest non-negative hit wins, independent of ECS query order.
             .min_by(|left, right| left.0.total_cmp(&right.0))
             .map(|(_, planet_id)| planet_id)
     });
@@ -290,30 +172,6 @@ fn update_hovered_planet(
         }
     }
     input.primary_just_pressed = false;
-}
-
-fn update_planet_card(
-    card: Res<PlanetCardState>,
-    mut names: Query<&mut Text, With<PlanetCardName>>,
-    mut details: Query<&mut Text, (With<PlanetCardDetail>, Without<PlanetCardName>)>,
-    mut visuals: Query<&mut BackgroundColor, With<PlanetCardVisual>>,
-) {
-    let profile = card.planet_id.map(PlanetId::profile);
-    for mut text in &mut names {
-        text.0 = profile
-            .map_or("Select a planet", |profile| profile.name)
-            .to_owned();
-    }
-    for mut text in &mut details {
-        text.0 = profile
-            .map_or("Hover over a planet for a closer look.", |profile| {
-                profile.detail
-            })
-            .to_owned();
-    }
-    for mut background in &mut visuals {
-        background.0 = profile.map_or(CARD_PRIMARY, |profile| profile.card_color);
-    }
 }
 
 fn sync_selection_highlights(
@@ -329,6 +187,7 @@ fn sync_selection_highlights(
     }
 }
 
+/// Returns the nearest non-negative distance along a normalized ray to a sphere.
 fn ray_sphere_distance(origin: Vec3, direction: Vec3, center: Vec3, radius: f32) -> Option<f32> {
     let offset = origin - center;
     let projected_offset = offset.dot(direction);
@@ -346,41 +205,5 @@ fn ray_sphere_distance(origin: Vec3, direction: Vec3, center: Vec3, radius: f32)
         Some(far_distance)
     } else {
         None
-    }
-}
-
-fn position_hover_labels(
-    state: Res<PlanetInteractionState>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    planets: Query<&GlobalTransform, With<PlanetMarker>>,
-    mut labels: Query<(&PlanetHoverLabel, &mut Node)>,
-) {
-    let camera = cameras.iter().next();
-
-    for (label, mut node) in &mut labels {
-        if state.hovered_planet != Some(label.planet_id) {
-            node.display = Display::None;
-            continue;
-        }
-
-        node.display = Display::Flex;
-        let Some((camera, camera_transform)) = camera else {
-            continue;
-        };
-        let Ok(planet_transform) = planets.get(label.planet_entity) else {
-            continue;
-        };
-
-        if let Ok(screen_position) =
-            camera.world_to_viewport(camera_transform, planet_transform.translation())
-        {
-            node.left = px(screen_position.x + 16.0);
-            node.top = px(screen_position.y + 12.0);
-        } else {
-            // A stable fallback also gives headless app tests a visible label
-            // state when no render target has computed a viewport.
-            node.left = px(470);
-            node.top = px(72);
-        }
     }
 }
