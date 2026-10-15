@@ -1,9 +1,9 @@
 use bevy::prelude::*;
-use galaxy_menu::MenuPlugin;
+use galaxy_menu::{GalaxyMapPlugin, MenuPlugin};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(MenuPlugin)
+        .add_plugins((GalaxyMapPlugin, MenuPlugin))
         .run();
 }
