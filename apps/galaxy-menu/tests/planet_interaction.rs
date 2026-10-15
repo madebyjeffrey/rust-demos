@@ -108,6 +108,12 @@ fn selecting_a_planet_updates_the_planet_focused_card() {
         "Ocean world at the edge of the inner arm.",
         "the visible card should show a short planet detail"
     );
+    let mut card_visuals = world.query::<(&Node, &BackgroundColor)>();
+    let (_, visual_color) = card_visuals
+        .iter(world)
+        .find(|(node, _)| node.width == px(96) && node.height == px(96))
+        .expect("the card should include a large planet visual");
+    assert_eq!(visual_color.0, Color::srgb(0.35, 0.74, 1.0));
 }
 
 fn visible_highlights(app: &mut App) -> Vec<&'static str> {

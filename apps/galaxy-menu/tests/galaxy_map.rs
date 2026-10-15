@@ -186,7 +186,7 @@ fn scroll_zoom_moves_the_camera_toward_the_galaxy_map() {
 }
 
 #[test]
-fn mouse_drag_keeps_camera_pitch_away_from_vertical_views() {
+fn mouse_drag_keeps_camera_at_a_readable_angle() {
     let mut app = launch_map();
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
@@ -212,7 +212,10 @@ fn mouse_drag_keeps_camera_pitch_away_from_vertical_views() {
         .query_filtered::<&Transform, With<Camera3d>>()
         .single(app.world())
         .unwrap();
-    assert!(lower_view.forward().y > 0.9 && lower_view.forward().y < 0.99);
+    assert!(
+        lower_view.forward().y < -0.2 && lower_view.forward().y > -0.3,
+        "the orbit limit should keep the galaxy from collapsing edge-on"
+    );
 }
 
 #[test]
@@ -247,4 +250,30 @@ fn galaxy_idles_while_background_stars_stay_fixed() {
     let idle_rotation = root_before.angle_between(root_after);
     assert!(idle_rotation > 0.0 && idle_rotation < 0.01);
     assert_eq!(*background_after, background_before);
+}
+
+#[test]
+fn galaxy_rotation_pauses_while_camera_input_is_active() {
+    let mut app = launch_map();
+    let root_before = app
+        .world_mut()
+        .query_filtered::<&Transform, With<GalaxyRoot>>()
+        .single(app.world())
+        .unwrap()
+        .clone();
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.world_mut()
+        .resource_mut::<AccumulatedMouseMotion>()
+        .delta = Vec2::new(90.0, -35.0);
+
+    app.update();
+
+    let root_after = app
+        .world_mut()
+        .query_filtered::<&Transform, With<GalaxyRoot>>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(*root_after, root_before);
 }

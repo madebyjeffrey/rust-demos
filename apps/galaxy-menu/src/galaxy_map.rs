@@ -16,7 +16,7 @@ const GALAXY_RADIUS: f32 = 12.0;
 const GALAXY_CENTER: Vec3 = Vec3::new(7.4, 0.0, 0.0);
 const CAMERA_TARGET: Vec3 = Vec3::new(3.8, 0.0, 0.0);
 const ORBIT_SENSITIVITY: f32 = 0.005;
-const MIN_CAMERA_PITCH: f32 = -1.35;
+const MIN_CAMERA_PITCH: f32 = 0.25;
 const MAX_CAMERA_PITCH: f32 = 1.35;
 const MIN_CAMERA_DISTANCE: f32 = 18.0;
 const MAX_CAMERA_DISTANCE: f32 = 72.0;
@@ -238,7 +238,20 @@ fn orbit_galaxy_camera(
     transform.look_at(camera.target, Vec3::Y);
 }
 
-fn rotate_galaxy_map(mut roots: Query<&mut Transform, With<GalaxyRoot>>, time: Res<Time>) {
+fn rotate_galaxy_map(
+    mut roots: Query<&mut Transform, With<GalaxyRoot>>,
+    time: Res<Time>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mouse_motion: Res<AccumulatedMouseMotion>,
+    mouse_scroll: Res<AccumulatedMouseScroll>,
+) {
+    if mouse_buttons.pressed(MouseButton::Left)
+        || mouse_motion.delta != Vec2::ZERO
+        || mouse_scroll.delta != Vec2::ZERO
+    {
+        return;
+    }
+
     for mut root in &mut roots {
         root.rotate_y(IDLE_ROTATION_RADIANS_PER_SECOND * time.delta_secs());
     }

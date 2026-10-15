@@ -48,6 +48,9 @@ pub struct PlanetCardName;
 #[derive(Component, Debug)]
 pub struct PlanetCardDetail;
 
+#[derive(Component, Debug)]
+pub struct PlanetCardVisual;
+
 /// UI label that follows a planet while the cursor is over it.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PlanetHoverLabel {
@@ -124,6 +127,41 @@ fn setup_planet_card(mut commands: Commands) {
                 },
                 TextColor(CARD_QUIET),
             ));
+            card.spawn((
+                Node {
+                    align_self: AlignSelf::Center,
+                    width: px(96),
+                    height: px(96),
+                    margin: UiRect::vertical(px(4)),
+                    border: UiRect::all(px(2)),
+                    border_radius: BorderRadius::all(px(48)),
+                    ..default()
+                },
+                BackgroundColor(planet_card_color(None)),
+                BorderColor::all(Color::srgba(1.0, 0.9, 0.76, 0.62)),
+                BoxShadow::new(
+                    Color::srgba(0.35, 0.74, 1.0, 0.42),
+                    px(0),
+                    px(0),
+                    px(3),
+                    px(22),
+                ),
+                PlanetCardVisual,
+            ))
+            .with_children(|planet| {
+                planet.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(19),
+                        top: px(15),
+                        width: px(22),
+                        height: px(16),
+                        border_radius: BorderRadius::all(px(11)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.48)),
+                ));
+            });
             card.spawn((
                 Text::new("Select a planet"),
                 TextFont {
@@ -259,6 +297,7 @@ fn update_planet_card(
     card: Res<PlanetCardState>,
     mut names: Query<&mut Text, With<PlanetCardName>>,
     mut details: Query<&mut Text, (With<PlanetCardDetail>, Without<PlanetCardName>)>,
+    mut visuals: Query<&mut BackgroundColor, With<PlanetCardVisual>>,
 ) {
     for mut text in &mut names {
         text.0 = card.planet_name.unwrap_or("Select a planet").to_owned();
@@ -268,6 +307,20 @@ fn update_planet_card(
             .detail
             .unwrap_or("Hover over a planet for a closer look.")
             .to_owned();
+    }
+    for mut background in &mut visuals {
+        background.0 = planet_card_color(card.planet_name);
+    }
+}
+
+fn planet_card_color(planet_name: Option<&'static str>) -> Color {
+    match planet_name {
+        Some("Kestrel") => Color::srgb(1.0, 0.48, 0.29),
+        Some("Solace") => Color::srgb(0.74, 0.52, 1.0),
+        Some("Meridian") => Color::srgb(1.0, 0.70, 0.32),
+        Some("Halcyon") => Color::srgb(0.30, 0.85, 0.76),
+        Some("Vesper") | None => Color::srgb(0.35, 0.74, 1.0),
+        Some(_) => CARD_PRIMARY,
     }
 }
 
