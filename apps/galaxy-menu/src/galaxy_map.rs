@@ -1,6 +1,11 @@
 use bevy::{
-    asset::RenderAssetUsages, mesh::PrimitiveTopology, picking::Pickable,
-    post_process::bloom::Bloom, prelude::*, render::view::Tonemapping,
+    asset::RenderAssetUsages,
+    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
+    mesh::PrimitiveTopology,
+    picking::Pickable,
+    post_process::bloom::Bloom,
+    prelude::*,
+    render::view::Tonemapping,
 };
 
 const GALAXY_SEED: u64 = 0xA57A_21C4_11D3_90B7;
@@ -10,6 +15,13 @@ const BACKGROUND_STAR_COUNT: usize = 650;
 const GALAXY_RADIUS: f32 = 12.0;
 const GALAXY_CENTER: Vec3 = Vec3::new(7.4, 0.0, 0.0);
 const CAMERA_TARGET: Vec3 = Vec3::new(3.8, 0.0, 0.0);
+const ORBIT_SENSITIVITY: f32 = 0.005;
+const MIN_CAMERA_PITCH: f32 = -1.35;
+const MAX_CAMERA_PITCH: f32 = 1.35;
+const MIN_CAMERA_DISTANCE: f32 = 18.0;
+const MAX_CAMERA_DISTANCE: f32 = 72.0;
+const ZOOM_SENSITIVITY: f32 = 0.12;
+const IDLE_ROTATION_RADIANS_PER_SECOND: f32 = 0.035;
 
 /// Stable transform anchor for the galaxy map's contents.
 ///
@@ -32,13 +44,22 @@ pub struct PlanetMarker {
 pub struct BackgroundStarfield;
 
 #[derive(Component, Debug)]
-struct GalaxyCamera;
+struct GalaxyCamera {
+    target: Vec3,
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+}
 
 pub struct GalaxyMapPlugin;
 
 impl Plugin for GalaxyMapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_galaxy_map);
+        app.init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<AccumulatedMouseScroll>()
+            .add_systems(Startup, setup_galaxy_map)
+            .add_systems(Update, (orbit_galaxy_camera, rotate_galaxy_map));
     }
 }
 
@@ -47,12 +68,19 @@ fn setup_galaxy_map(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let camera_transform = Transform::from_xyz(
+    let camera_position = Vec3::new(
         CAMERA_TARGET.x,
         CAMERA_TARGET.y + 22.0,
         CAMERA_TARGET.z + 37.0,
-    )
-    .looking_at(CAMERA_TARGET, Vec3::Y);
+    );
+    let camera_offset = camera_position - CAMERA_TARGET;
+    let camera_distance = camera_offset.length();
+    let camera_yaw = camera_offset.x.atan2(camera_offset.z);
+    let camera_pitch = camera_offset
+        .y
+        .atan2(Vec2::new(camera_offset.x, camera_offset.z).length());
+    let camera_transform =
+        Transform::from_translation(camera_position).looking_at(CAMERA_TARGET, Vec3::Y);
     let camera_forward = camera_transform.forward();
     let camera_right = camera_transform.right();
     let camera_up = camera_transform.up();
@@ -62,7 +90,12 @@ fn setup_galaxy_map(
         Bloom::NATURAL,
         Tonemapping::SomewhatBoringDisplayTransform,
         camera_transform,
-        GalaxyCamera,
+        GalaxyCamera {
+            target: CAMERA_TARGET,
+            yaw: camera_yaw,
+            pitch: camera_pitch,
+            distance: camera_distance,
+        },
     ));
 
     let background_center = CAMERA_TARGET + camera_forward * 70.0;
@@ -168,6 +201,47 @@ fn setup_galaxy_map(
             ));
         }
     });
+}
+
+fn orbit_galaxy_camera(
+    mut cameras: Query<(&mut Transform, &mut GalaxyCamera)>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mouse_motion: Res<AccumulatedMouseMotion>,
+    mouse_scroll: Res<AccumulatedMouseScroll>,
+) {
+    let Ok((mut transform, mut camera)) = cameras.single_mut() else {
+        return;
+    };
+
+    if mouse_buttons.pressed(MouseButton::Left) {
+        camera.yaw -= mouse_motion.delta.x * ORBIT_SENSITIVITY;
+        camera.pitch = (camera.pitch + mouse_motion.delta.y * ORBIT_SENSITIVITY)
+            .clamp(MIN_CAMERA_PITCH, MAX_CAMERA_PITCH);
+    }
+
+    let scroll = match mouse_scroll.unit {
+        MouseScrollUnit::Line => mouse_scroll.delta.y,
+        MouseScrollUnit::Pixel => mouse_scroll.delta.y / 100.0,
+    };
+    if scroll != 0.0 {
+        camera.distance = (camera.distance * (-scroll * ZOOM_SENSITIVITY).exp())
+            .clamp(MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE);
+    }
+
+    let horizontal_distance = camera.distance * camera.pitch.cos();
+    let offset = Vec3::new(
+        horizontal_distance * camera.yaw.sin(),
+        camera.distance * camera.pitch.sin(),
+        horizontal_distance * camera.yaw.cos(),
+    );
+    transform.translation = camera.target + offset;
+    transform.look_at(camera.target, Vec3::Y);
+}
+
+fn rotate_galaxy_map(mut roots: Query<&mut Transform, With<GalaxyRoot>>, time: Res<Time>) {
+    for mut root in &mut roots {
+        root.rotate_y(IDLE_ROTATION_RADIANS_PER_SECOND * time.delta_secs());
+    }
 }
 
 fn build_galaxy_starfield(seed: u64) -> Mesh {
