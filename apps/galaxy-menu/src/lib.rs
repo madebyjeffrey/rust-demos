@@ -3,7 +3,8 @@ mod menu;
 mod planet_interaction;
 
 pub use galaxy_map::{
-    BackgroundStarfield, GalaxyDecorative, GalaxyMapPlugin, GalaxyRoot, PlanetMarker,
+    BackgroundStarfield, GalaxyDecorative, GalaxyMapPlugin, GalaxyRoot, PlanetId, PlanetMarker,
+    PlanetProfile,
 };
 pub use menu::{MenuAction, MenuEmphasis, MenuPlugin};
 pub use planet_interaction::{

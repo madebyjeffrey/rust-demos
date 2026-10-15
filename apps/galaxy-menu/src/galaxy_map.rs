@@ -22,6 +22,7 @@ const MIN_CAMERA_DISTANCE: f32 = 18.0;
 const MAX_CAMERA_DISTANCE: f32 = 72.0;
 const ZOOM_SENSITIVITY: f32 = 0.12;
 const IDLE_ROTATION_RADIANS_PER_SECOND: f32 = 0.035;
+const OCTAHEDRON_VERTEX_COUNT: usize = 24;
 
 /// Stable transform anchor for the galaxy map's contents.
 ///
@@ -34,10 +35,59 @@ pub struct GalaxyRoot;
 #[derive(Component, Debug)]
 pub struct GalaxyDecorative;
 
+/// Identity for a selectable destination on the galaxy map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PlanetId {
+    Vesper,
+    Kestrel,
+    Solace,
+    Meridian,
+    Halcyon,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlanetProfile {
+    pub name: &'static str,
+    pub detail: &'static str,
+    pub card_color: Color,
+}
+
+impl PlanetId {
+    pub const fn profile(self) -> PlanetProfile {
+        match self {
+            Self::Vesper => PlanetProfile {
+                name: "Vesper",
+                detail: "Ocean world at the edge of the inner arm.",
+                card_color: Color::srgb(0.35, 0.74, 1.0),
+            },
+            Self::Kestrel => PlanetProfile {
+                name: "Kestrel",
+                detail: "Wind carved deserts beneath a copper sky.",
+                card_color: Color::srgb(1.0, 0.48, 0.29),
+            },
+            Self::Solace => PlanetProfile {
+                name: "Solace",
+                detail: "A quiet world lit by twin auroras.",
+                card_color: Color::srgb(0.74, 0.52, 1.0),
+            },
+            Self::Meridian => PlanetProfile {
+                name: "Meridian",
+                detail: "A warm trade world at the center of the lanes.",
+                card_color: Color::srgb(1.0, 0.70, 0.32),
+            },
+            Self::Halcyon => PlanetProfile {
+                name: "Halcyon",
+                detail: "A lush canopy world with a calm ocean climate.",
+                card_color: Color::srgb(0.30, 0.85, 0.76),
+            },
+        }
+    }
+}
+
 /// A selectable destination represented by a simple glowing planet marker.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlanetMarker {
-    pub name: &'static str,
+    pub id: PlanetId,
 }
 
 #[derive(Component, Debug)]
@@ -155,31 +205,31 @@ fn setup_galaxy_map(
     let planet_mesh = meshes.add(Sphere::new(0.32).mesh().ico(3).unwrap());
     let planet_definitions = [
         (
-            "Vesper",
+            PlanetId::Vesper,
             Vec3::new(-5.8, 0.10, 3.2),
             Color::srgb(0.52, 0.81, 1.0),
             LinearRgba::rgb(1.8, 6.0, 11.0),
         ),
         (
-            "Kestrel",
+            PlanetId::Kestrel,
             Vec3::new(-2.1, -0.12, -4.2),
             Color::srgb(1.0, 0.59, 0.40),
             LinearRgba::rgb(11.0, 2.4, 0.7),
         ),
         (
-            "Solace",
+            PlanetId::Solace,
             Vec3::new(2.4, 0.14, 5.8),
             Color::srgb(0.79, 0.57, 1.0),
             LinearRgba::rgb(5.0, 1.8, 11.0),
         ),
         (
-            "Meridian",
+            PlanetId::Meridian,
             Vec3::new(5.8, -0.08, 1.5),
             Color::srgb(1.0, 0.75, 0.43),
             LinearRgba::rgb(11.0, 5.0, 1.0),
         ),
         (
-            "Halcyon",
+            PlanetId::Halcyon,
             Vec3::new(3.8, 0.09, -7.2),
             Color::srgb(0.43, 0.91, 0.84),
             LinearRgba::rgb(0.8, 8.0, 6.4),
@@ -187,14 +237,14 @@ fn setup_galaxy_map(
     ];
 
     commands.entity(root).with_children(|children| {
-        for (name, position, base_color, emissive) in planet_definitions {
+        for (id, position, base_color, emissive) in planet_definitions {
             let material = materials.add(StandardMaterial {
                 base_color,
                 emissive,
                 ..default()
             });
             children.spawn((
-                PlanetMarker { name },
+                PlanetMarker { id },
                 Mesh3d(planet_mesh.clone()),
                 MeshMaterial3d(material),
                 Transform::from_translation(position),
@@ -259,9 +309,7 @@ fn rotate_galaxy_map(
 
 fn build_galaxy_starfield(seed: u64) -> Mesh {
     let mut rng = StableRandom::new(seed);
-    let mut positions = Vec::with_capacity(GALAXY_STAR_COUNT * 24);
-    let mut normals = Vec::with_capacity(GALAXY_STAR_COUNT * 24);
-    let mut colors = Vec::with_capacity(GALAXY_STAR_COUNT * 24);
+    let mut mesh = StarMeshBuilder::with_capacity(GALAXY_STAR_COUNT);
 
     for star in 0..GALAXY_STAR_COUNT {
         let radius = if star < GALAXY_STAR_COUNT / 3 {
@@ -280,17 +328,10 @@ fn build_galaxy_starfield(seed: u64) -> Mesh {
         );
         let size = 0.025 + rng.unit() * 0.054;
         let color = galaxy_star_color(radius, &mut rng);
-        append_octahedron(
-            &mut positions,
-            &mut normals,
-            &mut colors,
-            center,
-            size,
-            color,
-        );
+        mesh.push_octahedron(center, size, color);
     }
 
-    vertex_mesh(positions, normals, colors)
+    mesh.build()
 }
 
 fn build_background_starfield(
@@ -300,9 +341,7 @@ fn build_background_starfield(
     center: Vec3,
 ) -> Mesh {
     let mut rng = StableRandom::new(seed);
-    let mut positions = Vec::with_capacity(BACKGROUND_STAR_COUNT * 24);
-    let mut normals = Vec::with_capacity(BACKGROUND_STAR_COUNT * 24);
-    let mut colors = Vec::with_capacity(BACKGROUND_STAR_COUNT * 24);
+    let mut mesh = StarMeshBuilder::with_capacity(BACKGROUND_STAR_COUNT);
 
     for _ in 0..BACKGROUND_STAR_COUNT {
         let x = rng.signed() * 92.0;
@@ -324,17 +363,10 @@ fn build_background_starfield(
             tint[2] * brightness,
             1.0,
         ];
-        append_octahedron(
-            &mut positions,
-            &mut normals,
-            &mut colors,
-            center,
-            size,
-            color,
-        );
+        mesh.push_octahedron(center, size, color);
     }
 
-    vertex_mesh(positions, normals, colors)
+    mesh.build()
 }
 
 fn galaxy_star_color(radius: f32, rng: &mut StableRandom) -> [f32; 4] {
@@ -369,6 +401,38 @@ fn vertex_mesh(positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, colors: Vec<[f3
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+}
+
+struct StarMeshBuilder {
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+}
+
+impl StarMeshBuilder {
+    fn with_capacity(star_count: usize) -> Self {
+        let vertex_capacity = star_count * OCTAHEDRON_VERTEX_COUNT;
+        Self {
+            positions: Vec::with_capacity(vertex_capacity),
+            normals: Vec::with_capacity(vertex_capacity),
+            colors: Vec::with_capacity(vertex_capacity),
+        }
+    }
+
+    fn push_octahedron(&mut self, center: Vec3, radius: f32, color: [f32; 4]) {
+        append_octahedron(
+            &mut self.positions,
+            &mut self.normals,
+            &mut self.colors,
+            center,
+            radius,
+            color,
+        );
+    }
+
+    fn build(self) -> Mesh {
+        vertex_mesh(self.positions, self.normals, self.colors)
+    }
 }
 
 fn append_octahedron(

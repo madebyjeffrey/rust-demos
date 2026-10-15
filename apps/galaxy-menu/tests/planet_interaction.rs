@@ -1,8 +1,8 @@
 use bevy::{asset::Assets, prelude::*};
 use galaxy_menu::{
     GalaxyMapPlugin, PlanetCardDetail, PlanetCardName, PlanetCardState, PlanetCursorRay,
-    PlanetHoverLabel, PlanetInteractionInput, PlanetInteractionPlugin, PlanetInteractionState,
-    PlanetMarker, PlanetSelectionHighlight,
+    PlanetHoverLabel, PlanetId, PlanetInteractionInput, PlanetInteractionPlugin,
+    PlanetInteractionState, PlanetMarker, PlanetSelectionHighlight,
 };
 
 fn app_with_planet_interaction() -> App {
@@ -15,12 +15,12 @@ fn app_with_planet_interaction() -> App {
     app
 }
 
-fn planet_position(app: &mut App, planet_name: &str) -> Vec3 {
+fn planet_position(app: &mut App, planet_id: PlanetId) -> Vec3 {
     let world = app.world_mut();
     let mut query = world.query::<(&PlanetMarker, &GlobalTransform)>();
     query
         .iter(world)
-        .find(|(planet, _)| planet.name == planet_name)
+        .find(|(planet, _)| planet.id == planet_id)
         .map(|(_, transform)| transform.translation())
         .expect("the named planet should be present in the galaxy map")
 }
@@ -37,19 +37,19 @@ fn point_cursor_at(app: &mut App, position: Vec3, click: bool) {
 #[test]
 fn hovering_a_planet_updates_the_public_app_state() {
     let mut app = app_with_planet_interaction();
-    let position = planet_position(&mut app, "Vesper");
+    let position = planet_position(&mut app, PlanetId::Vesper);
 
     point_cursor_at(&mut app, position, false);
     app.update();
 
     let state = app.world().resource::<PlanetInteractionState>();
-    assert_eq!(state.hovered_planet, Some("Vesper"));
+    assert_eq!(state.hovered_planet, Some(PlanetId::Vesper));
 
     let world = app.world_mut();
     let mut labels = world.query::<(&PlanetHoverLabel, &Node)>();
     let (_, label_node) = labels
         .iter(world)
-        .find(|(label, _)| label.planet_name == "Vesper")
+        .find(|(label, _)| label.planet_id == PlanetId::Vesper)
         .expect("each planet should have a hover label");
     assert_eq!(label_node.display, Display::Flex);
 }
@@ -57,8 +57,8 @@ fn hovering_a_planet_updates_the_public_app_state() {
 #[test]
 fn selecting_planets_moves_the_visible_highlight_to_the_selected_planet() {
     let mut app = app_with_planet_interaction();
-    let vesper = planet_position(&mut app, "Vesper");
-    let kestrel = planet_position(&mut app, "Kestrel");
+    let vesper = planet_position(&mut app, PlanetId::Vesper);
+    let kestrel = planet_position(&mut app, PlanetId::Kestrel);
 
     point_cursor_at(&mut app, vesper, true);
     app.update();
@@ -66,34 +66,30 @@ fn selecting_planets_moves_the_visible_highlight_to_the_selected_planet() {
         app.world()
             .resource::<PlanetInteractionState>()
             .selected_planet,
-        Some("Vesper")
+        Some(PlanetId::Vesper)
     );
-    assert_eq!(visible_highlights(&mut app), vec!["Vesper"]);
+    assert_eq!(visible_highlights(&mut app), vec![PlanetId::Vesper]);
     point_cursor_at(&mut app, kestrel, true);
     app.update();
     assert_eq!(
         app.world()
             .resource::<PlanetInteractionState>()
             .selected_planet,
-        Some("Kestrel")
+        Some(PlanetId::Kestrel)
     );
-    assert_eq!(visible_highlights(&mut app), vec!["Kestrel"]);
+    assert_eq!(visible_highlights(&mut app), vec![PlanetId::Kestrel]);
 }
 
 #[test]
 fn selecting_a_planet_updates_the_planet_focused_card() {
     let mut app = app_with_planet_interaction();
-    let vesper = planet_position(&mut app, "Vesper");
+    let vesper = planet_position(&mut app, PlanetId::Vesper);
 
     point_cursor_at(&mut app, vesper, true);
     app.update();
 
     let card = app.world().resource::<PlanetCardState>();
-    assert_eq!(card.planet_name, Some("Vesper"));
-    assert_eq!(
-        card.detail,
-        Some("Ocean world at the edge of the inner arm.")
-    );
+    assert_eq!(card.planet_id, Some(PlanetId::Vesper));
 
     let world = app.world_mut();
     let mut name_text = world.query_filtered::<&Text, With<PlanetCardName>>();
@@ -116,13 +112,13 @@ fn selecting_a_planet_updates_the_planet_focused_card() {
     assert_eq!(visual_color.0, Color::srgb(0.35, 0.74, 1.0));
 }
 
-fn visible_highlights(app: &mut App) -> Vec<&'static str> {
+fn visible_highlights(app: &mut App) -> Vec<PlanetId> {
     let world = app.world_mut();
     let mut highlights = world.query::<(&PlanetSelectionHighlight, &Visibility)>();
     highlights
         .iter(world)
         .filter_map(|(highlight, visibility)| {
-            (*visibility == Visibility::Visible).then_some(highlight.planet_name)
+            (*visibility == Visibility::Visible).then_some(highlight.planet_id)
         })
         .collect()
 }

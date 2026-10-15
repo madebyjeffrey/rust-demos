@@ -5,7 +5,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-use crate::PlanetMarker;
+use crate::{PlanetId, PlanetMarker};
 
 const HOVER_LABEL_COLOR: Color = Color::srgb(1.0, 0.84, 0.62);
 const HOVER_LABEL_BACKGROUND: Color = Color::srgba(0.025, 0.035, 0.09, 0.9);
@@ -31,15 +31,14 @@ pub struct PlanetInteractionInput {
 /// Observable state for the currently hovered planet.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlanetInteractionState {
-    pub hovered_planet: Option<&'static str>,
-    pub selected_planet: Option<&'static str>,
+    pub hovered_planet: Option<PlanetId>,
+    pub selected_planet: Option<PlanetId>,
 }
 
 /// The selected planet details shown in the destination card.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlanetCardState {
-    pub planet_name: Option<&'static str>,
-    pub detail: Option<&'static str>,
+    pub planet_id: Option<PlanetId>,
 }
 
 #[derive(Component, Debug)]
@@ -55,13 +54,13 @@ pub struct PlanetCardVisual;
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PlanetHoverLabel {
     pub planet_entity: Entity,
-    pub planet_name: &'static str,
+    pub planet_id: PlanetId,
 }
 
 /// Emissive mesh placed around a planet while it is selected.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PlanetSelectionHighlight {
-    pub planet_name: &'static str,
+    pub planet_id: PlanetId,
 }
 
 pub struct PlanetInteractionPlugin;
@@ -137,7 +136,7 @@ fn setup_planet_card(mut commands: Commands) {
                     border_radius: BorderRadius::all(px(48)),
                     ..default()
                 },
-                BackgroundColor(planet_card_color(None)),
+                BackgroundColor(PlanetId::Vesper.profile().card_color),
                 BorderColor::all(Color::srgba(1.0, 0.9, 0.76, 0.62)),
                 BoxShadow::new(
                     Color::srgba(0.35, 0.74, 1.0, 0.42),
@@ -207,7 +206,7 @@ fn setup_selection_highlights(
                 Visibility::Hidden,
                 Pickable::IGNORE,
                 PlanetSelectionHighlight {
-                    planet_name: planet.name,
+                    planet_id: planet.id,
                 },
             ));
         });
@@ -216,6 +215,7 @@ fn setup_selection_highlights(
 
 fn setup_planet_hover_labels(mut commands: Commands, planets: Query<(Entity, &PlanetMarker)>) {
     for (planet_entity, planet) in &planets {
+        let profile = planet.id.profile();
         commands.spawn((
             Node {
                 position_type: PositionType::Absolute,
@@ -225,7 +225,7 @@ fn setup_planet_hover_labels(mut commands: Commands, planets: Query<(Entity, &Pl
                 ..default()
             },
             BackgroundColor(HOVER_LABEL_BACKGROUND),
-            Text::new(planet.name),
+            Text::new(profile.name),
             TextFont {
                 font_size: FontSize::Px(14.0),
                 ..default()
@@ -233,7 +233,7 @@ fn setup_planet_hover_labels(mut commands: Commands, planets: Query<(Entity, &Pl
             TextColor(HOVER_LABEL_COLOR),
             PlanetHoverLabel {
                 planet_entity,
-                planet_name: planet.name,
+                planet_id: planet.id,
             },
             ZIndex(20),
         ));
@@ -278,16 +278,15 @@ fn update_hovered_planet(
             .iter()
             .filter_map(|(planet, transform)| {
                 ray_sphere_distance(ray.origin, direction, transform.translation(), 0.38)
-                    .map(|distance| (distance, planet.name))
+                    .map(|distance| (distance, planet.id))
             })
             .min_by(|left, right| left.0.total_cmp(&right.0))
-            .map(|(_, planet_name)| planet_name)
+            .map(|(_, planet_id)| planet_id)
     });
     if input.primary_just_pressed {
-        if let Some(planet_name) = state.hovered_planet {
-            state.selected_planet = Some(planet_name);
-            card.planet_name = Some(planet_name);
-            card.detail = Some(planet_detail(planet_name));
+        if let Some(planet_id) = state.hovered_planet {
+            state.selected_planet = Some(planet_id);
+            card.planet_id = Some(planet_id);
         }
     }
     input.primary_just_pressed = false;
@@ -299,39 +298,21 @@ fn update_planet_card(
     mut details: Query<&mut Text, (With<PlanetCardDetail>, Without<PlanetCardName>)>,
     mut visuals: Query<&mut BackgroundColor, With<PlanetCardVisual>>,
 ) {
+    let profile = card.planet_id.map(PlanetId::profile);
     for mut text in &mut names {
-        text.0 = card.planet_name.unwrap_or("Select a planet").to_owned();
+        text.0 = profile
+            .map_or("Select a planet", |profile| profile.name)
+            .to_owned();
     }
     for mut text in &mut details {
-        text.0 = card
-            .detail
-            .unwrap_or("Hover over a planet for a closer look.")
+        text.0 = profile
+            .map_or("Hover over a planet for a closer look.", |profile| {
+                profile.detail
+            })
             .to_owned();
     }
     for mut background in &mut visuals {
-        background.0 = planet_card_color(card.planet_name);
-    }
-}
-
-fn planet_card_color(planet_name: Option<&'static str>) -> Color {
-    match planet_name {
-        Some("Kestrel") => Color::srgb(1.0, 0.48, 0.29),
-        Some("Solace") => Color::srgb(0.74, 0.52, 1.0),
-        Some("Meridian") => Color::srgb(1.0, 0.70, 0.32),
-        Some("Halcyon") => Color::srgb(0.30, 0.85, 0.76),
-        Some("Vesper") | None => Color::srgb(0.35, 0.74, 1.0),
-        Some(_) => CARD_PRIMARY,
-    }
-}
-
-fn planet_detail(planet_name: &'static str) -> &'static str {
-    match planet_name {
-        "Vesper" => "Ocean world at the edge of the inner arm.",
-        "Kestrel" => "Wind carved deserts beneath a copper sky.",
-        "Solace" => "A quiet world lit by twin auroras.",
-        "Meridian" => "A warm trade world at the center of the lanes.",
-        "Halcyon" => "A lush canopy world with a calm ocean climate.",
-        _ => "A new destination awaiting discovery.",
+        background.0 = profile.map_or(CARD_PRIMARY, |profile| profile.card_color);
     }
 }
 
@@ -340,7 +321,7 @@ fn sync_selection_highlights(
     mut highlights: Query<(&PlanetSelectionHighlight, &mut Visibility)>,
 ) {
     for (highlight, mut visibility) in &mut highlights {
-        *visibility = if state.selected_planet == Some(highlight.planet_name) {
+        *visibility = if state.selected_planet == Some(highlight.planet_id) {
             Visibility::Visible
         } else {
             Visibility::Hidden
@@ -377,7 +358,7 @@ fn position_hover_labels(
     let camera = cameras.iter().next();
 
     for (label, mut node) in &mut labels {
-        if state.hovered_planet != Some(label.planet_name) {
+        if state.hovered_planet != Some(label.planet_id) {
             node.display = Display::None;
             continue;
         }
