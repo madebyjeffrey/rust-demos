@@ -1,0 +1,4 @@
+[workspace]
+members = ["apps/galaxy-menu"]
+default-members = ["apps/galaxy-menu"]
+resolver = "3"
