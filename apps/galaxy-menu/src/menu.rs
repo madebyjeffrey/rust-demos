@@ -30,7 +30,6 @@ impl Plugin for MenuPlugin {
 
 fn setup_menu(mut commands: Commands) {
     commands.insert_resource(ClearColor(BACKGROUND));
-    commands.spawn(Camera2d);
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
