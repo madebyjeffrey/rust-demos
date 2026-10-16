@@ -85,6 +85,18 @@ pub(crate) struct MenuInputOwnership {
 }
 
 impl MenuInputOwnership {
+    fn interrupt(&mut self, commands: &mut Commands) {
+        self.backdrop_touches.push(BackdropTouchInput::Interrupted);
+        self.mouse_capture = None;
+        self.mouse_cancelled = self.mouse_pressed;
+        self.touch_captures.clear();
+        // Suppress the rest of an interrupted scroll until its end.
+        if self.scroll_owner.is_some() {
+            self.scroll_owner = Some(ScrollOwner::Menu);
+        }
+        commands.queue(clear_menu_focus);
+    }
+
     pub(crate) fn has_active_touches(&self) -> bool {
         !self.touch_captures.is_empty()
     }
@@ -198,32 +210,13 @@ fn capture_menu_input(
                     AppLifecycle::Idle | AppLifecycle::WillSuspend | AppLifecycle::Suspended
                 );
                 if ownership.suspended {
-                    ownership
-                        .backdrop_touches
-                        .push(BackdropTouchInput::Interrupted);
-                    ownership.mouse_capture = None;
-                    ownership.mouse_cancelled = ownership.mouse_pressed;
-                    ownership.touch_captures.clear();
-                    if ownership.scroll_owner.is_some() {
-                        ownership.scroll_owner = Some(ScrollOwner::Menu);
-                    }
-                    commands.queue(clear_menu_focus);
+                    ownership.interrupt(&mut commands);
                 }
             }
             WindowEvent::WindowFocused(event) if windows.contains(event.window) => {
                 focused = event.focused;
                 if !focused {
-                    ownership
-                        .backdrop_touches
-                        .push(BackdropTouchInput::Interrupted);
-                    ownership.mouse_capture = None;
-                    ownership.mouse_cancelled = ownership.mouse_pressed;
-                    ownership.touch_captures.clear();
-                    // Suppress the rest of an interrupted scroll until its end.
-                    if ownership.scroll_owner.is_some() {
-                        ownership.scroll_owner = Some(ScrollOwner::Menu);
-                    }
-                    commands.queue(clear_menu_focus);
+                    ownership.interrupt(&mut commands);
                 }
             }
             WindowEvent::KeyboardInput(input)
