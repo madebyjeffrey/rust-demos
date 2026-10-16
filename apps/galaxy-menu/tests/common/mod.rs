@@ -12,7 +12,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
         touch::{TouchInput, TouchPhase},
     },
-    input_focus::{InputDispatchPlugin, InputFocusPlugin},
+    input_focus::{InputFocusPlugin, pointer_focus::PointerFocusPlugin},
     mesh::MeshPlugin,
     picking::DefaultPickingPlugins,
     prelude::*,
@@ -40,8 +40,7 @@ pub fn launch_app(size: UVec2, scale: f32) -> App {
             AssetPlugin::default(),
             InputPlugin,
             InputFocusPlugin,
-            InputDispatchPlugin,
-            UiWidgetsPlugins,
+            UiWidgetsPlugins.build().disable::<PointerFocusPlugin>(),
             ImagePlugin::default(),
             MeshPlugin,
             CameraPlugin,
@@ -113,7 +112,7 @@ pub fn mouse_motion(app: &mut App, delta: Vec2) {
 
 pub fn key(app: &mut App, key_code: KeyCode, state: ButtonState, repeat: bool) {
     let window = primary_window(app);
-    app.world_mut().write_message(KeyboardInput {
+    let input = KeyboardInput {
         key_code,
         logical_key: match key_code {
             KeyCode::Tab => Key::Tab,
@@ -125,7 +124,10 @@ pub fn key(app: &mut App, key_code: KeyCode, state: ButtonState, repeat: bool) {
         text: None,
         repeat,
         window,
-    });
+    };
+    app.world_mut().write_message(input.clone());
+    app.world_mut()
+        .write_message(WindowEvent::KeyboardInput(input));
 }
 
 pub fn touch(app: &mut App, id: u64, phase: TouchPhase, position: Vec2) {
@@ -152,13 +154,17 @@ pub fn window_focus(app: &mut App, focused: bool) {
 }
 
 pub fn mouse_scroll(app: &mut App, unit: MouseScrollUnit, y: f32) {
+    mouse_scroll_with_phase(app, unit, y, TouchPhase::Moved);
+}
+
+pub fn mouse_scroll_with_phase(app: &mut App, unit: MouseScrollUnit, y: f32, phase: TouchPhase) {
     let window = primary_window(app);
     let input = MouseWheel {
         unit,
         x: 0.0,
         y,
         window,
-        phase: TouchPhase::Moved,
+        phase,
     };
     app.world_mut().write_message(input);
     app.world_mut()

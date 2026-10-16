@@ -7,7 +7,8 @@ use bevy::{
     ui_widgets::{Activate, Button},
 };
 use common::{
-    key, launch_app, mouse_button, mouse_motion, mouse_scroll, point_cursor, touch, window_focus,
+    key, launch_app, mouse_button, mouse_motion, mouse_scroll, mouse_scroll_with_phase,
+    point_cursor, touch, window_focus,
 };
 use galaxy_menu::MenuAction;
 
@@ -41,15 +42,7 @@ fn menu_actions_are_readable_buttons_on_the_baseline_device_windows() {
 
 #[test]
 fn desktop_buttons_show_pointer_feedback_and_activate_placeholder_actions() {
-    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
-    app.init_resource::<Activations>();
-    app.add_observer(
-        |event: On<Activate>, actions: Query<&MenuAction>, mut log: ResMut<Activations>| {
-            if let Ok(action) = actions.get(event.entity) {
-                log.0.push(*action);
-            }
-        },
-    );
+    let mut app = launch_logged_app(1.0);
     for action in [
         MenuAction::NewGame,
         MenuAction::LoadGame,
@@ -92,15 +85,7 @@ struct Activations(Vec<MenuAction>);
 #[test]
 fn keyboard_navigation_and_activation_show_focus_and_press_feedback_without_repeating() {
     use bevy::input_focus::InputFocus;
-    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
-    app.init_resource::<Activations>();
-    app.add_observer(
-        |event: On<Activate>, actions: Query<&MenuAction>, mut log: ResMut<Activations>| {
-            if let Ok(action) = actions.get(event.entity) {
-                log.0.push(*action);
-            }
-        },
-    );
+    let mut app = launch_logged_app(1.0);
     let (new_game, _) = button(&mut app, MenuAction::NewGame);
     let resting_border = *app.world().get::<BorderColor>(new_game).unwrap();
     for action in [
@@ -239,15 +224,7 @@ fn move_cursor(app: &mut App, position: Vec2) {
 fn touch_controls_tap_and_keep_ownership_through_drag_and_cancellation() {
     use bevy::input::{mouse::MouseScrollUnit, touch::TouchPhase};
     for scale in [1.0, 2.0] {
-        let mut app = launch_app(UVec2::new(1280, 720) * scale as u32, scale);
-        app.init_resource::<Activations>();
-        app.add_observer(
-            |event: On<Activate>, actions: Query<&MenuAction>, mut log: ResMut<Activations>| {
-                if let Ok(action) = actions.get(event.entity) {
-                    log.0.push(*action);
-                }
-            },
-        );
+        let mut app = launch_logged_app(scale);
         let (entity, center) = button(&mut app, MenuAction::NewGame);
         let center = center / scale;
         let idle = *app.world().get::<BackgroundColor>(entity).unwrap();
@@ -365,15 +342,7 @@ fn wheel_input_over_a_button_does_not_zoom_when_the_cursor_moves_away_in_the_sam
 
 #[test]
 fn a_batched_mouse_drag_between_controls_cannot_activate_the_release_target() {
-    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
-    app.init_resource::<Activations>();
-    app.add_observer(
-        |event: On<Activate>, actions: Query<&MenuAction>, mut log: ResMut<Activations>| {
-            if let Ok(action) = actions.get(event.entity) {
-                log.0.push(*action);
-            }
-        },
-    );
+    let mut app = launch_logged_app(1.0);
     let (_, new_game) = button(&mut app, MenuAction::NewGame);
     let (_, load_game) = button(&mut app, MenuAction::LoadGame);
     move_cursor(&mut app, new_game);
@@ -465,4 +434,202 @@ fn launch_logged_app(scale: f32) -> App {
         },
     );
     app
+}
+
+#[test]
+fn focus_round_trip_cancels_a_batched_mouse_click() {
+    let mut app = launch_logged_app(1.0);
+    let (_, center) = button(&mut app, MenuAction::Quit);
+    move_cursor(&mut app, center);
+    mouse_button(&mut app, ButtonState::Pressed);
+    window_focus(&mut app, false);
+    window_focus(&mut app, true);
+    mouse_button(&mut app, ButtonState::Released);
+    app.update();
+    assert!(
+        app.world().resource::<Activations>().0.is_empty(),
+        "focus loss should cancel the click; got {:?}",
+        app.world().resource::<Activations>().0
+    );
+    assert!(app.world().resource::<Messages<AppExit>>().is_empty());
+}
+
+#[test]
+fn focus_round_trip_cancels_a_batched_touch_tap() {
+    use bevy::input::touch::TouchPhase;
+    let mut app = launch_logged_app(1.0);
+    let (_, center) = button(&mut app, MenuAction::NewGame);
+    touch(&mut app, 1, TouchPhase::Started, center);
+    window_focus(&mut app, false);
+    window_focus(&mut app, true);
+    touch(&mut app, 1, TouchPhase::Ended, center);
+    app.update();
+    assert!(
+        app.world().resource::<Activations>().0.is_empty(),
+        "focus loss should cancel the tap; got {:?}",
+        app.world().resource::<Activations>().0
+    );
+}
+
+#[test]
+fn trackpad_scroll_keeps_its_starting_ui_owner() {
+    use bevy::input::{mouse::MouseScrollUnit, touch::TouchPhase};
+    for scale in [1.0, 2.0] {
+        for ending in [TouchPhase::Ended, TouchPhase::Canceled] {
+            let mut app = launch_logged_app(scale);
+            let (_, center) = button(&mut app, MenuAction::NewGame);
+            point_cursor(&mut app, center / scale, false);
+            let before = camera(&mut app);
+            mouse_scroll_with_phase(
+                &mut app,
+                MouseScrollUnit::Pixel,
+                -100.0,
+                TouchPhase::Started,
+            );
+            app.update();
+            assert_eq!(camera(&mut app), before);
+            move_cursor(&mut app, Vec2::new(1000.0, 600.0));
+            for phase in [TouchPhase::Moved, ending] {
+                mouse_scroll_with_phase(&mut app, MouseScrollUnit::Pixel, -100.0, phase);
+                app.update();
+                assert_eq!(
+                    camera(&mut app),
+                    before,
+                    "UI ownership includes the final scroll event"
+                );
+            }
+            mouse_scroll_with_phase(
+                &mut app,
+                MouseScrollUnit::Pixel,
+                -100.0,
+                TouchPhase::Started,
+            );
+            app.update();
+            assert_ne!(
+                camera(&mut app),
+                before,
+                "the next backdrop gesture must zoom"
+            );
+        }
+    }
+}
+
+#[test]
+fn backdrop_scroll_keeps_its_owner_when_crossing_a_control() {
+    use bevy::input::{mouse::MouseScrollUnit, touch::TouchPhase};
+    let mut app = launch_logged_app(1.0);
+    point_cursor(&mut app, Vec2::new(1000.0, 600.0), false);
+    mouse_scroll_with_phase(&mut app, MouseScrollUnit::Pixel, -30.0, TouchPhase::Started);
+    app.update();
+    let (_, center) = button(&mut app, MenuAction::NewGame);
+    move_cursor(&mut app, center);
+    for phase in [TouchPhase::Moved, TouchPhase::Ended] {
+        let before = camera(&mut app);
+        mouse_scroll_with_phase(&mut app, MouseScrollUnit::Pixel, -30.0, phase);
+        app.update();
+        assert_ne!(
+            camera(&mut app),
+            before,
+            "crossing a control must retain backdrop ownership"
+        );
+    }
+    let before = camera(&mut app);
+    mouse_scroll(&mut app, MouseScrollUnit::Line, -1.0);
+    app.update();
+    assert_eq!(
+        camera(&mut app),
+        before,
+        "a new wheel tick over the control belongs to the UI"
+    );
+}
+
+#[test]
+fn new_pointer_presses_after_focus_returns_work_in_the_same_batch() {
+    use bevy::input::touch::TouchPhase;
+    let mut app = launch_logged_app(1.0);
+    let (_, new_game) = button(&mut app, MenuAction::NewGame);
+    let (_, load_game) = button(&mut app, MenuAction::LoadGame);
+    move_cursor(&mut app, new_game);
+    mouse_button(&mut app, ButtonState::Pressed);
+    touch(&mut app, 1, TouchPhase::Started, new_game);
+    window_focus(&mut app, false);
+    window_focus(&mut app, true);
+    mouse_button(&mut app, ButtonState::Released);
+    touch(&mut app, 1, TouchPhase::Ended, new_game);
+    move_cursor(&mut app, load_game);
+    mouse_button(&mut app, ButtonState::Pressed);
+    mouse_button(&mut app, ButtonState::Released);
+    touch(&mut app, 2, TouchPhase::Started, load_game);
+    touch(&mut app, 2, TouchPhase::Ended, load_game);
+    app.update();
+    assert_eq!(
+        app.world().resource::<Activations>().0,
+        [MenuAction::LoadGame, MenuAction::LoadGame]
+    );
+    app.update();
+    assert_eq!(
+        app.world().resource::<Activations>().0.len(),
+        2,
+        "native and direct input must not activate twice"
+    );
+}
+
+#[test]
+fn batched_tab_then_enter_activates_the_new_focus() {
+    use bevy::input_focus::InputFocus;
+    let mut app = launch_logged_app(1.0);
+    let (quit, _) = button(&mut app, MenuAction::Quit);
+    for _ in 0..4 {
+        key(&mut app, KeyCode::Tab, ButtonState::Pressed, false);
+        app.update();
+        key(&mut app, KeyCode::Tab, ButtonState::Released, false);
+        app.update();
+    }
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(quit));
+    key(&mut app, KeyCode::Tab, ButtonState::Pressed, false);
+    key(&mut app, KeyCode::Tab, ButtonState::Released, false);
+    key(&mut app, KeyCode::Enter, ButtonState::Pressed, false);
+    app.update();
+    let (new_game, _) = button(&mut app, MenuAction::NewGame);
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(new_game));
+    assert_eq!(
+        app.world().resource::<Activations>().0,
+        [MenuAction::NewGame]
+    );
+    assert!(app.world().resource::<Messages<AppExit>>().is_empty());
+}
+
+#[test]
+fn keyboard_activation_precedes_a_later_pointer_focus_change_in_the_same_batch() {
+    use bevy::input::touch::TouchPhase;
+    let mut app = launch_logged_app(1.0);
+    key(&mut app, KeyCode::Tab, ButtonState::Pressed, false);
+    app.update();
+    key(&mut app, KeyCode::Tab, ButtonState::Released, false);
+    key(&mut app, KeyCode::Enter, ButtonState::Pressed, false);
+    let (_, load_game) = button(&mut app, MenuAction::LoadGame);
+    touch(&mut app, 1, TouchPhase::Started, load_game);
+    touch(&mut app, 1, TouchPhase::Ended, load_game);
+    app.update();
+    assert_eq!(
+        app.world().resource::<Activations>().0,
+        [MenuAction::NewGame, MenuAction::LoadGame]
+    );
+}
+
+#[test]
+fn keys_received_while_unfocused_cannot_activate_a_later_pointer_target() {
+    use bevy::input::touch::TouchPhase;
+    let mut app = launch_logged_app(1.0);
+    window_focus(&mut app, false);
+    key(&mut app, KeyCode::Enter, ButtonState::Pressed, false);
+    window_focus(&mut app, true);
+    let (_, center) = button(&mut app, MenuAction::NewGame);
+    touch(&mut app, 1, TouchPhase::Started, center);
+    touch(&mut app, 1, TouchPhase::Ended, center);
+    app.update();
+    assert_eq!(
+        app.world().resource::<Activations>().0,
+        [MenuAction::NewGame]
+    );
 }

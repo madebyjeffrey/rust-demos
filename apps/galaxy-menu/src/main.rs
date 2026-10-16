@@ -1,4 +1,7 @@
-use bevy::prelude::*;
+use bevy::{
+    input_focus::{InputDispatchPlugin, pointer_focus::PointerFocusPlugin},
+    prelude::*,
+};
 use galaxy_menu::GalaxyMenuPlugin;
 
 #[cfg(target_os = "ios")]
@@ -13,7 +16,13 @@ fn main() {
         galaxy_register_scene()
     };
     App::new()
-        .add_plugins(DefaultPlugins)
+        // MenuPlugin owns native input order; frame-final focus/picking would reorder it.
+        .add_plugins(
+            DefaultPlugins
+                .build()
+                .disable::<InputDispatchPlugin>()
+                .disable::<PointerFocusPlugin>(),
+        )
         .add_plugins(GalaxyMenuPlugin)
         .run();
 }
