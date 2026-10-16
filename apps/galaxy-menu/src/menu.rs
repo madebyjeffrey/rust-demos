@@ -38,7 +38,6 @@ impl Plugin for MenuPlugin {
 fn setup_menu(mut commands: Commands) {
     commands.insert_resource(ClearColor(BACKGROUND));
     commands.spawn((
-        BlocksPlanetInteraction,
         Node {
             position_type: PositionType::Absolute,
             left: px(54),
@@ -116,6 +115,11 @@ fn action_text(label: &'static str, action: MenuAction, emphasis: MenuEmphasis) 
     };
 
     (
+        BlocksPlanetInteraction,
+        Node {
+            align_self: AlignSelf::FlexStart,
+            ..default()
+        },
         Text::new(label),
         TextFont {
             font_size,
