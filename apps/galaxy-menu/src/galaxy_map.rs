@@ -62,6 +62,15 @@ struct GalaxyCamera {
     distance: f32,
 }
 
+impl GalaxyCamera {
+    fn orbit(&mut self, drag: Vec2) {
+        // Use the current view axes to remain continuous through the poles.
+        let delta = drag * -ORBIT_SENSITIVITY;
+        let rotation = Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
+        self.orientation = (self.orientation * rotation).normalize();
+    }
+}
+
 #[derive(Resource, Default)]
 pub(super) struct TouchNavigation {
     positions: HashMap<(Entity, u64), Vec2>,
@@ -246,12 +255,10 @@ fn touch_galaxy_camera(
                     let previous_span = touch_navigation.pinch_span();
                     let count = touch_navigation.positions.len();
                     if let Some(previous) = touch_navigation.positions.get_mut(&key) {
-                        let delta = (touch.position - *previous) * -ORBIT_SENSITIVITY;
+                        let delta = touch.position - *previous;
                         *previous = touch.position;
                         if count == 1 {
-                            let rotation =
-                                Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
-                            camera.orientation = (camera.orientation * rotation).normalize();
+                            camera.orbit(delta);
                         }
                         if let (Some(previous), Some(current)) =
                             (previous_span, touch_navigation.pinch_span())
@@ -283,13 +290,10 @@ fn orbit_galaxy_camera(
         return;
     };
 
-    // Rotate around the current view axes so dragging stays continuous through the poles.
     if mouse_buttons.pressed(MouseButton::Left)
         && !menu_input.as_ref().is_some_and(|input| input.blocks_mouse)
     {
-        let delta = mouse_motion.delta * -ORBIT_SENSITIVITY;
-        let rotation = Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
-        camera.orientation = (camera.orientation * rotation).normalize();
+        camera.orbit(mouse_motion.delta);
     }
 
     let scroll = match mouse_scroll.unit {
