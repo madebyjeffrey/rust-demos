@@ -1,8 +1,13 @@
 //! Assembles the camera and stellar and gas geometry of the galaxy backdrop.
 
+use std::collections::HashMap;
+
 use bevy::{
     core_pipeline::prepass::DepthPrepass,
-    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
+    input::{
+        mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
+        touch::TouchPhase,
+    },
     picking::Pickable,
     post_process::bloom::Bloom,
     prelude::*,
@@ -16,7 +21,7 @@ use crate::{
         GAS_HALF_HEIGHT, GalaxyDustUniform, GalaxyGas, GalaxyGasMaterial,
         build_galaxy_medium_volumes, register_gas_material,
     },
-    menu::MenuInputOwnership,
+    menu::{BackdropTouchInput, MenuInputOwnership},
     starfield::{
         GALAXY_RADIUS, StarMaterial, build_background_starfield, build_galaxy_starfield,
         register_star_material,
@@ -57,6 +62,26 @@ struct GalaxyCamera {
     distance: f32,
 }
 
+#[derive(Resource, Default)]
+pub(super) struct TouchNavigation {
+    positions: HashMap<(Entity, u64), Vec2>,
+    ui_touch_active: bool,
+}
+
+impl TouchNavigation {
+    pub(super) fn is_active(&self) -> bool {
+        !self.positions.is_empty() || self.ui_touch_active
+    }
+
+    fn pinch_span(&self) -> Option<f32> {
+        if self.positions.len() != 2 {
+            return None;
+        }
+        let mut positions = self.positions.values();
+        Some(positions.next()?.distance(*positions.next()?))
+    }
+}
+
 type GalaxyCameraFilter = (Without<GalaxyRoot>, Without<GalaxyCompanion>);
 
 /// Adds the backdrop and schedules free camera orbit, bounded zoom, and idle rotation.
@@ -70,6 +95,7 @@ impl Plugin for GalaxyMapPlugin {
         register_gas_material(app);
         register_star_material(app);
         app.init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<TouchNavigation>()
             .init_resource::<Assets<Image>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<AccumulatedMouseScroll>()
@@ -77,6 +103,7 @@ impl Plugin for GalaxyMapPlugin {
             .add_systems(
                 Update,
                 (
+                    touch_galaxy_camera,
                     rotate_galaxy_map,
                     update_companion_orbits,
                     sync_galaxy_dust,
@@ -195,6 +222,54 @@ fn sync_galaxy_dust(
     }
 }
 
+fn touch_galaxy_camera(
+    mut cameras: Query<&mut GalaxyCamera>,
+    menu_input: Option<Res<MenuInputOwnership>>,
+    mut touch_navigation: ResMut<TouchNavigation>,
+) {
+    let Ok(mut camera) = cameras.single_mut() else {
+        return;
+    };
+    if let Some(input) = &menu_input {
+        touch_navigation.ui_touch_active = input.has_active_touches();
+        for event in &input.backdrop_touches {
+            let BackdropTouchInput::Touch(touch) = event else {
+                touch_navigation.positions.clear();
+                continue;
+            };
+            let key = (touch.window, touch.id);
+            match touch.phase {
+                TouchPhase::Started => {
+                    touch_navigation.positions.insert(key, touch.position);
+                }
+                TouchPhase::Moved => {
+                    let previous_span = touch_navigation.pinch_span();
+                    let count = touch_navigation.positions.len();
+                    if let Some(previous) = touch_navigation.positions.get_mut(&key) {
+                        let delta = (touch.position - *previous) * -ORBIT_SENSITIVITY;
+                        *previous = touch.position;
+                        if count == 1 {
+                            let rotation =
+                                Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
+                            camera.orientation = (camera.orientation * rotation).normalize();
+                        }
+                        if let (Some(previous), Some(current)) =
+                            (previous_span, touch_navigation.pinch_span())
+                            && previous > f32::EPSILON
+                            && current > f32::EPSILON
+                        {
+                            camera.distance *= previous / current;
+                        }
+                    }
+                }
+                TouchPhase::Ended | TouchPhase::Canceled => {
+                    touch_navigation.positions.remove(&key);
+                }
+            }
+        }
+    }
+}
+
 fn orbit_galaxy_camera(
     mut cameras: Query<(&mut Transform, &mut GalaxyCamera, &Projection), GalaxyCameraFilter>,
     galaxies: Query<&Transform, With<GalaxyRoot>>,
@@ -298,11 +373,13 @@ fn rotate_galaxy_map(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
+    touch_navigation: Res<TouchNavigation>,
 ) {
     // Pause the idle motion while the user is manipulating the view.
     if mouse_buttons.pressed(MouseButton::Left)
         || mouse_motion.delta != Vec2::ZERO
         || mouse_scroll.delta != Vec2::ZERO
+        || touch_navigation.is_active()
     {
         return;
     }
