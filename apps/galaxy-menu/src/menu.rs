@@ -10,12 +10,12 @@ use bevy::{
         touch::{TouchInput, TouchPhase},
     },
     input_focus::{
-        FocusedInput, InputFocus, InputFocusSystems, InputFocusVisible,
+        FocusCause, FocusedInput, InputFocus, InputFocusSystems, InputFocusVisible,
         tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
     },
-    picking::{Pickable, hover::Hovered},
+    picking::{Pickable, PickingSystems},
     prelude::*,
-    ui::{Pressed, UiGlobalTransform},
+    ui::UiGlobalTransform,
     ui_widgets::{Activate, Button},
     window::{PrimaryWindow, WindowEvent, WindowFocused},
 };
@@ -51,10 +51,11 @@ struct KeyboardPress(Option<(Entity, KeyCode)>);
 /// Camera input consults ownership captured at the beginning of a UI interaction.
 #[derive(Resource, Default)]
 pub(crate) struct MenuInputOwnership {
-    mouse_captured: bool,
+    mouse_capture: Option<Entity>,
     mouse_cancelled: bool,
     mouse_position: Option<Vec2>,
     touch_captures: HashMap<(Entity, u64), Entity>,
+    hovered: Option<Entity>,
     /// Includes released UI touches for the current frame so camera gesture readers
     /// can reject their final input as well as their active movement.
     pub(crate) ui_touches: HashSet<(Entity, u64)>,
@@ -76,6 +77,7 @@ impl Plugin for MenuPlugin {
                 PreUpdate,
                 capture_menu_input
                     .after(InputSystems)
+                    .after(PickingSystems::Last)
                     .before(InputFocusSystems::Dispatch),
             )
             .add_systems(Update, style_buttons);
@@ -108,20 +110,25 @@ fn capture_menu_input(
     >,
 ) {
     let focused = windows.single().is_ok_and(|window| window.focused);
-    if focus_events
-        .read()
-        .any(|event| !event.focused && windows.contains(event.window))
-    {
-        ownership.mouse_captured = false;
+    let mut lost_focus = false;
+    for event in focus_events.read() {
+        lost_focus |= !event.focused && windows.contains(event.window);
+    }
+    if lost_focus {
+        ownership.mouse_capture = None;
         ownership.mouse_cancelled = mouse.pressed(MouseButton::Left);
         ownership.touch_captures.clear();
         keyboard.0 = None;
         focus.clear();
         focus_visible.0 = false;
-        for (entity, _, _, _) in &buttons {
-            commands.entity(entity).remove::<Pressed>();
-        }
     }
+    let control_at = |position| {
+        buttons
+            .iter()
+            .find_map(|(entity, node, transform, visible)| {
+                (visible.get() && node.contains_point(*transform, position)).then_some(entity)
+            })
+    };
     ownership.ui_touches = ownership.touch_captures.keys().copied().collect();
     for touch in touches.read() {
         let key = (touch.window, touch.id);
@@ -129,41 +136,40 @@ fn capture_menu_input(
             TouchPhase::Started if focused => {
                 if let Ok(window) = windows.get(touch.window) {
                     let point = touch.position * window.scale_factor();
-                    if let Some((entity, _, _, _)) =
-                        buttons.iter().find(|(_, node, transform, visible)| {
-                            visible.get() && node.contains_point(**transform, point)
-                        })
-                    {
+                    if let Some(entity) = control_at(point) {
                         ownership.touch_captures.insert(key, entity);
                         ownership.ui_touches.insert(key);
+                        focus.set(entity, FocusCause::Pressed);
+                        focus_visible.0 = false;
                     }
                 }
             }
             TouchPhase::Ended | TouchPhase::Canceled => {
                 if let Some(entity) = ownership.touch_captures.remove(&key)
-                    && touch.phase == TouchPhase::Canceled
+                    && touch.phase == TouchPhase::Ended
+                    && focused
+                    && windows.get(touch.window).is_ok_and(|window| {
+                        control_at(touch.position * window.scale_factor()) == Some(entity)
+                    })
                 {
-                    // Picking can lose the original target after an interrupted drag.
-                    commands.entity(entity).remove::<Pressed>();
+                    commands.trigger(Activate { entity });
                 }
             }
             TouchPhase::Started | TouchPhase::Moved => {}
         }
     }
-    let control_at = |position| {
-        buttons.iter().any(|(_, node, transform, visible)| {
-            visible.get() && node.contains_point(*transform, position)
-        })
-    };
-    let hovered = focused
-        && windows
+    ownership.hovered = if focused {
+        windows
             .single()
             .ok()
             .and_then(Window::physical_cursor_position)
-            .is_some_and(control_at);
-    let mut captured_this_frame = ownership.mouse_captured;
+            .and_then(control_at)
+    } else {
+        None
+    };
+    let mut captured_this_frame = ownership.mouse_capture.is_some();
     let mut scroll_over_control = false;
-    let mut saw_press = false;
+    let mut saw_mouse_input = false;
     // Replay native pointer events in order: the final cursor position can already
     // be outside the control when a frame receives both a press and a movement.
     for event in window_events.read() {
@@ -179,32 +185,50 @@ fn capture_menu_input(
             WindowEvent::MouseButtonInput(event)
                 if event.button == MouseButton::Left && windows.contains(event.window) =>
             {
+                saw_mouse_input = true;
                 if event.state == ButtonState::Pressed && focused {
-                    saw_press = true;
-                    ownership.mouse_captured = ownership.mouse_position.is_some_and(control_at);
-                    captured_this_frame |= ownership.mouse_captured;
-                } else if event.state == ButtonState::Released {
-                    ownership.mouse_captured = false;
+                    ownership.mouse_capture = ownership.mouse_position.and_then(control_at);
+                    captured_this_frame |= ownership.mouse_capture.is_some();
+                    if let Some(entity) = ownership.mouse_capture {
+                        focus.set(entity, FocusCause::Pressed);
+                        focus_visible.0 = false;
+                    }
+                } else if event.state == ButtonState::Released
+                    && let Some(entity) = ownership.mouse_capture.take()
+                    && focused
+                    && !ownership.mouse_cancelled
+                    && ownership.mouse_position.and_then(control_at) == Some(entity)
+                {
+                    commands.trigger(Activate { entity });
                 }
             }
             WindowEvent::MouseWheel(event) if windows.contains(event.window) => {
-                scroll_over_control |= ownership.mouse_position.is_some_and(control_at);
+                scroll_over_control |= ownership.mouse_position.and_then(control_at).is_some();
             }
             _ => {}
         }
     }
     // Applications may also supply Bevy's direct mouse input without WindowEvent.
-    if !saw_press && focused && mouse.just_pressed(MouseButton::Left) {
-        ownership.mouse_captured = hovered;
-        captured_this_frame |= ownership.mouse_captured;
+    if !saw_mouse_input && focused {
+        if mouse.just_pressed(MouseButton::Left) {
+            ownership.mouse_capture = ownership.hovered;
+            captured_this_frame |= ownership.mouse_capture.is_some();
+        }
+        if mouse.just_released(MouseButton::Left)
+            && let Some(entity) = ownership.mouse_capture.take()
+            && !ownership.mouse_cancelled
+            && ownership.hovered == Some(entity)
+        {
+            commands.trigger(Activate { entity });
+        }
     }
     ownership.blocks_mouse = captured_this_frame || ownership.mouse_cancelled || !focused;
     ownership.blocks_scroll = ownership.blocks_mouse
-        || hovered
+        || ownership.hovered.is_some()
         || scroll_over_control
         || !ownership.ui_touches.is_empty();
     if !mouse.pressed(MouseButton::Left) {
-        ownership.mouse_captured = false;
+        ownership.mouse_capture = None;
         ownership.mouse_cancelled = false;
     }
 }
@@ -320,24 +344,12 @@ fn keyboard_feedback(
     }
 }
 
-#[expect(
-    clippy::type_complexity,
-    reason = "The query reads button feedback and updates its two visual properties"
-)]
 fn style_buttons(
-    mut buttons: Query<
-        (
-            Entity,
-            &Hovered,
-            Has<Pressed>,
-            &mut BackgroundColor,
-            &mut BorderColor,
-        ),
-        With<MenuAction>,
-    >,
+    mut buttons: Query<(Entity, &mut BackgroundColor, &mut BorderColor), With<MenuAction>>,
     focus: Res<InputFocus>,
     focus_visible: Res<InputFocusVisible>,
     mut keyboard: ResMut<KeyboardPress>,
+    ownership: Res<MenuInputOwnership>,
 ) {
     if keyboard
         .0
@@ -345,11 +357,16 @@ fn style_buttons(
     {
         keyboard.0 = None;
     }
-    for (entity, hovered, pressed, mut background, mut border) in &mut buttons {
+    for (entity, mut background, mut border) in &mut buttons {
+        let pressed = ownership.mouse_capture == Some(entity)
+            || ownership
+                .touch_captures
+                .values()
+                .any(|captured| *captured == entity);
         *background = BackgroundColor(
             if pressed || keyboard.0.is_some_and(|(focused, _)| focused == entity) {
                 Color::srgba(0.35, 0.20, 0.10, 0.95)
-            } else if hovered.get() {
+            } else if ownership.hovered == Some(entity) {
                 Color::srgba(0.12, 0.14, 0.21, 0.95)
             } else {
                 Color::srgba(0.04, 0.055, 0.11, 0.8)
@@ -372,7 +389,10 @@ fn action_button(label: &'static str, action: MenuAction, emphasis: MenuEmphasis
     (
         Button,
         TabIndex(action as i32),
-        Hovered::default(),
+        // Pointer activation uses ordered native input and captured targets. Bevy's
+        // frame-final picking would otherwise activate a different control after a
+        // batched drag, or emit a second Activate for a tap handled above.
+        Pickable::IGNORE,
         Node {
             width: percent(100),
             min_height: px(48),

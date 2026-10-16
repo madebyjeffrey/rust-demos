@@ -73,6 +73,15 @@ fn desktop_buttons_show_pointer_feedback_and_activate_placeholder_actions() {
             app.world().resource::<Messages<AppExit>>().is_empty(),
             "placeholder actions keep the menu open"
         );
+        key(&mut app, KeyCode::Enter, ButtonState::Pressed, false);
+        app.update();
+        key(&mut app, KeyCode::Enter, ButtonState::Released, false);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Activations>().0,
+            [action, action],
+            "a mouse-selected control remains operable with the keyboard"
+        );
         app.world_mut().resource_mut::<Activations>().0.clear();
     }
 }
@@ -352,4 +361,108 @@ fn wheel_input_over_a_button_does_not_zoom_when_the_cursor_moves_away_in_the_sam
         before,
         "wheel ownership comes from its input position"
     );
+}
+
+#[test]
+fn a_batched_mouse_drag_between_controls_cannot_activate_the_release_target() {
+    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
+    app.init_resource::<Activations>();
+    app.add_observer(
+        |event: On<Activate>, actions: Query<&MenuAction>, mut log: ResMut<Activations>| {
+            if let Ok(action) = actions.get(event.entity) {
+                log.0.push(*action);
+            }
+        },
+    );
+    let (_, new_game) = button(&mut app, MenuAction::NewGame);
+    let (_, load_game) = button(&mut app, MenuAction::LoadGame);
+    move_cursor(&mut app, new_game);
+    mouse_button(&mut app, ButtonState::Pressed);
+    move_cursor(&mut app, load_game);
+    app.update();
+    mouse_button(&mut app, ButtonState::Released);
+    app.update();
+    assert!(
+        app.world().resource::<Activations>().0.is_empty(),
+        "releasing a cross-button drag must not activate either action"
+    );
+}
+
+#[test]
+fn a_batched_touch_drag_between_controls_cannot_activate_the_release_target() {
+    use bevy::input::touch::TouchPhase;
+    for scale in [1.0, 2.0] {
+        let mut app = launch_logged_app(scale);
+        let (_, new_game) = button(&mut app, MenuAction::NewGame);
+        let (_, load_game) = button(&mut app, MenuAction::LoadGame);
+        touch(&mut app, 1, TouchPhase::Started, new_game / scale);
+        touch(&mut app, 1, TouchPhase::Moved, load_game / scale);
+        app.update();
+        touch(&mut app, 1, TouchPhase::Ended, load_game / scale);
+        app.update();
+        assert!(
+            app.world().resource::<Activations>().0.is_empty(),
+            "releasing a cross-button touch drag must not activate either action"
+        );
+    }
+}
+
+#[test]
+fn a_touch_tap_completed_between_frames_activates_its_original_control_once() {
+    use bevy::input::touch::TouchPhase;
+    for scale in [1.0, 2.0] {
+        let mut app = launch_logged_app(scale);
+        let (_, center) = button(&mut app, MenuAction::NewGame);
+        touch(&mut app, 1, TouchPhase::Started, center / scale);
+        touch(&mut app, 1, TouchPhase::Ended, center / scale);
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<Activations>().0,
+            [MenuAction::NewGame],
+            "short taps must survive input batching without duplicate activation"
+        );
+    }
+}
+
+#[test]
+fn cancelling_one_of_two_touches_keeps_the_other_control_press_and_activation() {
+    use bevy::input::touch::TouchPhase;
+    let mut app = launch_logged_app(1.0);
+    let (entity, center) = button(&mut app, MenuAction::NewGame);
+    let idle = *app.world().get::<BackgroundColor>(entity).unwrap();
+    touch(&mut app, 1, TouchPhase::Started, center);
+    app.update();
+    touch(&mut app, 2, TouchPhase::Started, center);
+    app.update();
+    let pressed = *app.world().get::<BackgroundColor>(entity).unwrap();
+    assert_ne!(pressed, idle);
+    touch(&mut app, 1, TouchPhase::Canceled, center);
+    app.update();
+    assert_eq!(
+        *app.world().get::<BackgroundColor>(entity).unwrap(),
+        pressed,
+        "the second finger still owns a held press"
+    );
+    assert!(app.world().resource::<Activations>().0.is_empty());
+    touch(&mut app, 2, TouchPhase::Ended, center);
+    app.update();
+    assert_eq!(*app.world().get::<BackgroundColor>(entity).unwrap(), idle);
+    assert_eq!(
+        app.world().resource::<Activations>().0,
+        [MenuAction::NewGame]
+    );
+}
+
+fn launch_logged_app(scale: f32) -> App {
+    let mut app = launch_app(UVec2::new(1280, 720) * scale as u32, scale);
+    app.init_resource::<Activations>();
+    app.add_observer(
+        |event: On<Activate>, actions: Query<&MenuAction>, mut log: ResMut<Activations>| {
+            if let Ok(action) = actions.get(event.entity) {
+                log.0.push(*action);
+            }
+        },
+    );
+    app
 }
