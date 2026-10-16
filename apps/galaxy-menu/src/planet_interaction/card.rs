@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use super::PlanetCardState;
+use super::{BlocksPlanetInteraction, PlanetCardState};
 use crate::PlanetId;
 
 const BACKGROUND: Color = Color::srgba(0.025, 0.035, 0.09, 0.9);
@@ -34,6 +34,7 @@ pub(super) fn setup_planet_card(mut commands: Commands) {
                 ..default()
             },
             BackgroundColor(BACKGROUND),
+            BlocksPlanetInteraction,
             ZIndex(20),
         ))
         .with_children(|card| {
@@ -90,7 +91,7 @@ pub(super) fn setup_planet_card(mut commands: Commands) {
                 PlanetCardName,
             ));
             card.spawn((
-                Text::new("Hover over a planet for a closer look."),
+                Text::new("Click a planet to view its details."),
                 TextFont {
                     font_size: FontSize::Px(14.0),
                     ..default()
@@ -115,7 +116,7 @@ pub(super) fn update_planet_card(
     }
     for mut text in &mut details {
         text.0 = profile
-            .map_or("Hover over a planet for a closer look.", |profile| {
+            .map_or("Click a planet to view its details.", |profile| {
                 profile.detail
             })
             .to_owned();

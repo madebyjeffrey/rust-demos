@@ -4,6 +4,7 @@ use bevy::{
     picking::Pickable,
     prelude::*,
     transform::{TransformPlugin, TransformSystems},
+    ui::UiGlobalTransform,
     window::PrimaryWindow,
 };
 
@@ -49,6 +50,10 @@ pub struct PlanetCardState {
 pub struct PlanetSelectionHighlight {
     pub planet_id: PlanetId,
 }
+
+/// UI surfaces whose rendered area blocks planet hover and selection.
+#[derive(Component)]
+pub(crate) struct BlocksPlanetInteraction;
 
 /// Installs pointer capture, ray-based planet selection, and its UI feedback.
 pub struct PlanetInteractionPlugin;
@@ -124,6 +129,10 @@ fn capture_window_pointer(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     buttons: Res<ButtonInput<MouseButton>>,
+    blockers: Query<
+        (&ComputedNode, &UiGlobalTransform, &InheritedVisibility),
+        With<BlocksPlanetInteraction>,
+    >,
     mut input: ResMut<PlanetInteractionInput>,
 ) {
     let Ok(window) = windows.single() else {
@@ -131,6 +140,18 @@ fn capture_window_pointer(
         // usable in headless tests, where no window exists.
         return;
     };
+
+    // Use physical pixels, matching the computed UI geometry even on high-DPI displays.
+    let over_ui = window.physical_cursor_position().is_some_and(|position| {
+        blockers.iter().any(|(node, transform, visibility)| {
+            visibility.get() && node.contains_point(*transform, position)
+        })
+    });
+    if over_ui {
+        input.cursor_ray = None;
+        input.primary_just_pressed = false;
+        return;
+    }
 
     input.primary_just_pressed = buttons.just_pressed(MouseButton::Left);
     input.cursor_ray = window.cursor_position().and_then(|cursor_position| {
@@ -165,11 +186,11 @@ fn update_hovered_planet(
             .min_by(|left, right| left.0.total_cmp(&right.0))
             .map(|(_, planet_id)| planet_id)
     });
-    if input.primary_just_pressed {
-        if let Some(planet_id) = state.hovered_planet {
-            state.selected_planet = Some(planet_id);
-            card.planet_id = Some(planet_id);
-        }
+    if input.primary_just_pressed
+        && let Some(planet_id) = state.hovered_planet
+    {
+        state.selected_planet = Some(planet_id);
+        card.planet_id = Some(planet_id);
     }
     input.primary_just_pressed = false;
 }

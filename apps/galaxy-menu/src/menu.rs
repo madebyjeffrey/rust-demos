@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 
+use crate::planet_interaction::BlocksPlanetInteraction;
+
 const BACKGROUND: Color = Color::srgb(0.025, 0.035, 0.09);
 const ACCENT: Color = Color::srgb(0.96, 0.66, 0.39);
 const PRIMARY_TEXT: Color = Color::srgb(0.98, 0.83, 0.6);
@@ -36,6 +38,7 @@ impl Plugin for MenuPlugin {
 fn setup_menu(mut commands: Commands) {
     commands.insert_resource(ClearColor(BACKGROUND));
     commands.spawn((
+        BlocksPlanetInteraction,
         Node {
             position_type: PositionType::Absolute,
             left: px(54),

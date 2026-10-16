@@ -1,6 +1,7 @@
 //! Assembles the camera, galaxy geometry, and destination markers into the scene.
 
 use bevy::{
+    core_pipeline::prepass::DepthPrepass,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
     picking::Pickable,
     post_process::bloom::Bloom,
@@ -9,19 +10,29 @@ use bevy::{
 };
 
 use crate::{
+    galaxy_companions::{GalaxyCompanion, spawn_galaxy_companions, update_companion_orbits},
+    galaxy_gas::{
+        GAS_HALF_HEIGHT, GalaxyDustUniform, GalaxyGas, GalaxyGasMaterial,
+        build_galaxy_medium_volumes, register_gas_material,
+    },
     planet::{PlanetId, PlanetMarker},
-    starfield::{build_background_starfield, build_galaxy_starfield},
+    starfield::{
+        GALAXY_RADIUS, StarMaterial, build_background_starfield, build_galaxy_starfield,
+        register_star_material,
+    },
 };
 
 const GALAXY_CENTER: Vec3 = Vec3::new(7.4, 0.0, 0.0);
 const CAMERA_TARGET: Vec3 = Vec3::new(3.8, 0.0, 0.0);
 const ORBIT_SENSITIVITY: f32 = 0.005;
-const MIN_CAMERA_PITCH: f32 = 0.25;
-const MAX_CAMERA_PITCH: f32 = 1.35;
 const MIN_CAMERA_DISTANCE: f32 = 18.0;
 const MAX_CAMERA_DISTANCE: f32 = 72.0;
 const ZOOM_SENSITIVITY: f32 = 0.12;
 const IDLE_ROTATION_RADIANS_PER_SECOND: f32 = 0.035;
+const FRAMING_VIEWPORT_FRACTION: f32 = 0.9;
+// Include the outer stars' size and the height of planet highlights above the disk.
+const GALAXY_FRAMING_RADIUS: f32 = GALAXY_RADIUS + 0.1;
+const GALAXY_FRAMING_HALF_HEIGHT: f32 = GAS_HALF_HEIGHT;
 
 /// Stable transform anchor for the galaxy map's contents.
 ///
@@ -41,21 +52,34 @@ pub struct BackgroundStarfield;
 #[derive(Component, Debug)]
 struct GalaxyCamera {
     target: Vec3,
-    yaw: f32,
-    pitch: f32,
+    orientation: Quat,
     distance: f32,
 }
 
-/// Adds the scene and schedules bounded camera movement plus idle map rotation.
+type GalaxyCameraFilter = (Without<GalaxyRoot>, Without<GalaxyCompanion>);
+
+/// Adds the scene and schedules free camera orbit, bounded zoom, and idle map rotation.
 pub struct GalaxyMapPlugin;
 
 impl Plugin for GalaxyMapPlugin {
     fn build(&self, app: &mut App) {
+        register_gas_material(app);
+        register_star_material(app);
         app.init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Assets<Image>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<AccumulatedMouseScroll>()
             .add_systems(Startup, setup_galaxy_map)
-            .add_systems(Update, (orbit_galaxy_camera, rotate_galaxy_map));
+            .add_systems(
+                Update,
+                (
+                    rotate_galaxy_map,
+                    update_companion_orbits,
+                    sync_galaxy_dust,
+                    orbit_galaxy_camera,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -63,48 +87,40 @@ fn setup_galaxy_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut star_materials: ResMut<Assets<StarMaterial>>,
+    mut gas_materials: ResMut<Assets<GalaxyGasMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
+    let galaxy_transform =
+        Transform::from_translation(GALAXY_CENTER).with_rotation(Quat::from_rotation_x(0.10));
+    let dust_settings = GalaxyDustUniform::new(galaxy_transform.to_matrix().inverse());
+    let (gas_volume, dust_volume) = build_galaxy_medium_volumes();
+    let dust_texture = images.add(dust_volume);
     let camera_position = Vec3::new(
         CAMERA_TARGET.x,
-        CAMERA_TARGET.y + 22.0,
-        CAMERA_TARGET.z + 37.0,
+        CAMERA_TARGET.y + 18.0,
+        CAMERA_TARGET.z + 31.0,
     );
     let camera_offset = camera_position - CAMERA_TARGET;
     let camera_distance = camera_offset.length();
-    let camera_yaw = camera_offset.x.atan2(camera_offset.z);
-    let camera_pitch = camera_offset
-        .y
-        .atan2(Vec2::new(camera_offset.x, camera_offset.z).length());
     let camera_transform =
         Transform::from_translation(camera_position).looking_at(CAMERA_TARGET, Vec3::Y);
-    let camera_forward = camera_transform.forward();
-    let camera_right = camera_transform.right();
-    let camera_up = camera_transform.up();
-
     commands.spawn((
         Camera3d::default(),
+        DepthPrepass,
         Bloom::NATURAL,
         Tonemapping::SomewhatBoringDisplayTransform,
         camera_transform,
         GalaxyCamera {
             target: CAMERA_TARGET,
-            yaw: camera_yaw,
-            pitch: camera_pitch,
+            orientation: camera_transform.rotation,
             distance: camera_distance,
         },
     ));
 
-    let background_center = CAMERA_TARGET + camera_forward * 70.0;
-    let background_mesh = meshes.add(build_background_starfield(
-        camera_right,
-        camera_up,
-        background_center,
-    ));
-    let background_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        unlit: true,
-        ..default()
-    });
+    let background_mesh = meshes.add(build_background_starfield(CAMERA_TARGET));
+    let background_material =
+        star_materials.add(StarMaterial::new(true, dust_texture.clone(), dust_settings));
     commands.spawn((
         Mesh3d(background_mesh),
         MeshMaterial3d(background_material),
@@ -113,26 +129,32 @@ fn setup_galaxy_map(
     ));
 
     let galaxy_mesh = meshes.add(build_galaxy_starfield());
-    let galaxy_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        unlit: true,
-        ..default()
-    });
-    let core_mesh = meshes.add(Sphere::new(1.15).mesh().ico(4).unwrap());
-    let core_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(1.0, 0.61, 0.31),
-        emissive: LinearRgba::rgb(5.0, 1.8, 0.45),
-        ..default()
-    });
+    let galaxy_material = star_materials.add(StarMaterial::new(
+        false,
+        dust_texture.clone(),
+        dust_settings,
+    ));
+    spawn_galaxy_companions(
+        &mut commands,
+        &mut meshes,
+        galaxy_material.clone(),
+        GALAXY_CENTER,
+    );
+    let cloud_mesh = meshes.add(Cuboid::new(
+        GALAXY_RADIUS * 2.0,
+        GAS_HALF_HEIGHT * 2.0,
+        GALAXY_RADIUS * 2.0,
+    ));
+    let cloud_material = gas_materials.add(GalaxyGasMaterial::new(
+        images.add(gas_volume),
+        dust_texture,
+        dust_settings,
+    ));
 
     // Place the galaxy right of the camera target to leave a clear area for the menu on the left.
     // Parenting its geometry and planets together keeps idle rotation local to the map.
     let root = commands
-        .spawn((
-            GalaxyRoot,
-            Visibility::default(),
-            Transform::from_translation(GALAXY_CENTER).with_rotation(Quat::from_rotation_x(0.10)),
-        ))
+        .spawn((GalaxyRoot, Visibility::default(), galaxy_transform))
         .id();
     commands.entity(root).with_children(|children| {
         children.spawn((
@@ -142,9 +164,9 @@ fn setup_galaxy_map(
             Pickable::IGNORE,
         ));
         children.spawn((
-            Mesh3d(core_mesh),
-            MeshMaterial3d(core_material),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Mesh3d(cloud_mesh),
+            MeshMaterial3d(cloud_material),
+            GalaxyGas,
             Pickable::IGNORE,
         ));
     });
@@ -201,21 +223,43 @@ fn setup_galaxy_map(
     });
 }
 
+fn sync_galaxy_dust(
+    roots: Query<Ref<Transform>, With<GalaxyRoot>>,
+    mut star_materials: ResMut<Assets<StarMaterial>>,
+    mut gas_materials: ResMut<Assets<GalaxyGasMaterial>>,
+) {
+    let Ok(root) = roots.single() else {
+        return;
+    };
+    if !root.is_changed() {
+        return;
+    }
+    let world_to_galaxy = root.to_matrix().inverse();
+    for (_, material) in star_materials.iter_mut() {
+        material.dust_settings.world_to_galaxy = world_to_galaxy;
+    }
+    for (_, material) in gas_materials.iter_mut() {
+        material.dust_settings.world_to_galaxy = world_to_galaxy;
+    }
+}
+
 fn orbit_galaxy_camera(
-    mut cameras: Query<(&mut Transform, &mut GalaxyCamera)>,
+    mut cameras: Query<(&mut Transform, &mut GalaxyCamera, &Projection), GalaxyCameraFilter>,
+    galaxies: Query<&Transform, With<GalaxyRoot>>,
+    companions: Query<(&Transform, &GalaxyCompanion)>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
 ) {
-    let Ok((mut transform, mut camera)) = cameras.single_mut() else {
+    let Ok((mut transform, mut camera, projection)) = cameras.single_mut() else {
         return;
     };
 
-    // Drag changes yaw and pitch; scroll changes distance. Both remain bounded.
+    // Rotate around the current view axes so dragging stays continuous through the poles.
     if mouse_buttons.pressed(MouseButton::Left) {
-        camera.yaw -= mouse_motion.delta.x * ORBIT_SENSITIVITY;
-        camera.pitch = (camera.pitch + mouse_motion.delta.y * ORBIT_SENSITIVITY)
-            .clamp(MIN_CAMERA_PITCH, MAX_CAMERA_PITCH);
+        let delta = mouse_motion.delta * -ORBIT_SENSITIVITY;
+        let rotation = Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
+        camera.orientation = (camera.orientation * rotation).normalize();
     }
 
     let scroll = match mouse_scroll.unit {
@@ -223,18 +267,74 @@ fn orbit_galaxy_camera(
         MouseScrollUnit::Pixel => mouse_scroll.delta.y / 100.0,
     };
     if scroll != 0.0 {
-        camera.distance = (camera.distance * (-scroll * ZOOM_SENSITIVITY).exp())
-            .clamp(MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE);
+        camera.distance *= (-scroll * ZOOM_SENSITIVITY).exp();
     }
 
-    let horizontal_distance = camera.distance * camera.pitch.cos();
-    let offset = Vec3::new(
-        horizontal_distance * camera.yaw.sin(),
-        camera.distance * camera.pitch.sin(),
-        horizontal_distance * camera.yaw.cos(),
-    );
-    transform.translation = camera.target + offset;
-    transform.look_at(camera.target, Vec3::Y);
+    let direction = camera.orientation * Vec3::Z;
+    let orientation = Transform::from_rotation(camera.orientation);
+    let minimum_distance = galaxies.single().map_or(MIN_CAMERA_DISTANCE, |galaxy| {
+        minimum_camera_distance(
+            camera.target,
+            &orientation,
+            projection,
+            galaxy,
+            companions.iter(),
+        )
+    });
+    if camera.is_added() {
+        // Start just outside the fitted scene, leaving room for the first zoom gesture.
+        camera.distance = camera.distance.max(minimum_distance * 1.12);
+    }
+    // Recheck every frame: orbit, idle rotation, and viewport resizing can all change the fit.
+    camera.distance = camera
+        .distance
+        .clamp(minimum_distance, MAX_CAMERA_DISTANCE.max(minimum_distance));
+    transform.translation = camera.target + direction * camera.distance;
+    transform.rotation = orientation.rotation;
+}
+
+fn minimum_camera_distance<'a>(
+    target: Vec3,
+    orientation: &Transform,
+    projection: &Projection,
+    galaxy: &Transform,
+    companions: impl Iterator<Item = (&'a Transform, &'a GalaxyCompanion)>,
+) -> f32 {
+    let Projection::Perspective(projection) = projection else {
+        return MIN_CAMERA_DISTANCE;
+    };
+    let vertical_tangent = (projection.fov * 0.5).tan() * FRAMING_VIEWPORT_FRACTION;
+    let horizontal_tangent = vertical_tangent * projection.aspect_ratio;
+    let back = -*orientation.forward();
+    let horizontal = *orientation.right() / horizontal_tangent;
+    let vertical = *orientation.up() / vertical_tangent;
+
+    // For each frustum side, solve the distance needed to contain a tilted disk.
+    // Its support in a direction is the radial extent plus its vertical thickness.
+    let planes = [
+        back + horizontal,
+        back - horizontal,
+        back + vertical,
+        back - vertical,
+    ];
+    let galaxy_distance = planes
+        .into_iter()
+        .map(|normal| {
+            let local_normal = (galaxy.rotation.inverse() * normal) * galaxy.scale;
+            normal.dot(galaxy.translation - target)
+                + GALAXY_FRAMING_RADIUS * Vec2::new(local_normal.x, local_normal.z).length()
+                + GALAXY_FRAMING_HALF_HEIGHT * local_normal.y.abs()
+        })
+        .fold(MIN_CAMERA_DISTANCE, f32::max);
+
+    companions
+        .flat_map(|(transform, companion)| {
+            planes.into_iter().map(move |normal| {
+                normal.dot(transform.translation - target)
+                    + companion.framing_radius * normal.length()
+            })
+        })
+        .fold(galaxy_distance, f32::max)
 }
 
 fn rotate_galaxy_map(
@@ -254,5 +354,60 @@ fn rotate_galaxy_map(
 
     for mut root in &mut roots {
         root.rotate_y(IDLE_ROTATION_RADIANS_PER_SECOND * time.delta_secs());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotating_galaxy_keeps_stars_and_gas_sampling_the_same_dust() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .add_plugins(GalaxyMapPlugin);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+
+        let local_star = Vec3::new(3.0, 0.1, -2.0);
+        for rotation in [Quat::from_rotation_y(0.8), Quat::from_rotation_z(-0.6)] {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&mut Transform, With<GalaxyRoot>>()
+                .single_mut(world)
+                .unwrap()
+                .rotation = rotation;
+            app.update();
+            let world = app.world_mut();
+            let root = world
+                .query_filtered::<&Transform, With<GalaxyRoot>>()
+                .single(world)
+                .unwrap();
+            let world_star = root.to_matrix().transform_point3(local_star);
+            for (_, material) in world.resource::<Assets<StarMaterial>>().iter() {
+                let sampled = material
+                    .dust_settings
+                    .world_to_galaxy
+                    .transform_point3(world_star);
+                assert!(
+                    sampled.distance(local_star) < 0.0001,
+                    "stellar extinction must follow the rotating dust lane"
+                );
+            }
+            for (_, material) in world.resource::<Assets<GalaxyGasMaterial>>().iter() {
+                let sampled = material
+                    .dust_settings
+                    .world_to_galaxy
+                    .transform_point3(world_star);
+                assert!(
+                    sampled.distance(local_star) < 0.0001,
+                    "diffuse light must sample dust at the same galaxy position as the stars"
+                );
+            }
+        }
     }
 }

@@ -2,3 +2,7 @@
 members = ["apps/galaxy-menu"]
 default-members = ["apps/galaxy-menu"]
 resolver = "3"
+
+# Basic optimization keeps Bevy's unwind tables within macOS linker limits.
+[profile.dev]
+opt-level = 1
