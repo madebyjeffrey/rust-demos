@@ -107,9 +107,11 @@ scenario when repeating it. Instruments' Game Performance or Metal System Trace
 can corroborate actual presentation and GPU behavior.
 
 Physical results and device acceptance are recorded in
-[native launch baseline](ios-baseline.md). Touch input, responsive layout, replacement
-menu controls and the final 60 fps target belong to the remaining native-support
-tickets; the initial launch intentionally retains the current desktop scene/menu.
+[native launch baseline](ios-baseline.md), which describes the initial launch
+milestone. The shared startup menu now provides tap controls for New Game, Load
+Game, and Settings, with Quit omitted on iPhone and iPad. Touch camera gestures,
+the full responsive layout, and the final 60 fps target belong to the remaining
+native-support tickets.
 
 ## Desktop smoke
 
@@ -122,4 +124,55 @@ GALAXY_FRAME_BASELINE=1 cargo run -p galaxy-menu --release
 
 The shared-application integration test assembles the real scene and menu, checks
 that they are present, sends mouse drag input and observes camera movement.
-Existing scene, menu, camera and display-scale regressions continue to run.
+Menu integration tests send real pointer, touch, keyboard, and focus events and
+check feedback, activation, desktop exit, and camera ownership. Existing scene,
+menu, camera and display-scale regressions continue to run.
+
+
+## Menu-controls acceptance — 2026-10-16
+
+[Ticket #10](https://github.com/madebyjeffrey/rust-demos/issues/10) was checked
+with the shared application at source commit `3b289a2` (integrated in `89657f9`).
+Desktop and `aarch64-apple-ios` release builds succeeded. The development-signed
+native executable installed on both baseline devices had SHA-256:
+
+```text
+022ce0040a3b7f4169848054e08b8e35dad6fa02fa81e3c5a35d3e3cf2fe65e9
+```
+
+| Physical device | OS | Rendered window | Controls smoke |
+| --- | --- | --- | --- |
+| iPhone 17 Pro | iOS 27.0.1 | 1206×2622, scale 3 | Pass |
+| iPad mini (6th generation) | iPadOS 27.0.1 | 1488×2266, scale 2 | Pass |
+
+A temporary, locally signed XCTest UI runner launched the installed app by bundle
+identifier. On each device it held New Game, Load Game and Settings for four
+seconds each, tapped each control, dragged from New Game into surrounding space,
+and tapped again afterward. Both native test runs passed and kept the placeholder
+menu foreground. Settled screenshots showed the galaxy backdrop, all three
+readable controls and no Quit. Separate screenshots taken during each hold
+confirmed pressed feedback on every control on both devices. Test bundles, raw
+results, screenshots and the signed app remain local; personal device identifiers
+and signing material are excluded from the repository.
+
+To repeat the smoke check, build, install and launch using the commands above;
+tap and hold each control, drag a control press into the surrounding space, and
+check that the next tap works. New Game, Load Game and Settings keep their
+placeholder behavior. Inspect the settled display after renderer startup and
+confirm Quit is absent.
+
+The macOS release smoke verified all four controls, pointer hover and activation,
+visible keyboard focus, Tab navigation with Enter/Space activation, control drag
+capture, and backdrop drag/wheel navigation. Both mouse and keyboard activation
+of Quit terminated the process. App-level regressions separately cover
+cancellation, focus loss, display scaling, batched input, complete taps received
+between frames, and independent touches on the same control. All 31 repository
+tests, formatting, and strict Clippy passed; the original four independent review
+reproductions also passed after the fixes. Standards and spec review have no
+remaining actionable findings.
+
+This acceptance covers the provisional controls slice. Touch camera gestures,
+full responsive layout and physical-device performance tuning continue in
+[#11](https://github.com/madebyjeffrey/rust-demos/issues/11),
+[#12](https://github.com/madebyjeffrey/rust-demos/issues/12) and
+[#13](https://github.com/madebyjeffrey/rust-demos/issues/13).
