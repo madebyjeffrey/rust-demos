@@ -1,4 +1,4 @@
-//! Assembles the camera, galaxy geometry, and destination markers into the scene.
+//! Assembles the camera and stellar and gas geometry of the galaxy backdrop.
 
 use bevy::{
     core_pipeline::prepass::DepthPrepass,
@@ -7,6 +7,7 @@ use bevy::{
     post_process::bloom::Bloom,
     prelude::*,
     render::view::Tonemapping,
+    transform::TransformPlugin,
 };
 
 use crate::{
@@ -15,7 +16,6 @@ use crate::{
         GAS_HALF_HEIGHT, GalaxyDustUniform, GalaxyGas, GalaxyGasMaterial,
         build_galaxy_medium_volumes, register_gas_material,
     },
-    planet::{PlanetId, PlanetMarker},
     starfield::{
         GALAXY_RADIUS, StarMaterial, build_background_starfield, build_galaxy_starfield,
         register_star_material,
@@ -30,22 +30,22 @@ const MAX_CAMERA_DISTANCE: f32 = 72.0;
 const ZOOM_SENSITIVITY: f32 = 0.12;
 const IDLE_ROTATION_RADIANS_PER_SECOND: f32 = 0.035;
 const FRAMING_VIEWPORT_FRACTION: f32 = 0.9;
-// Include the outer stars' size and the height of planet highlights above the disk.
+// Include the outer stars' size and the full thickness of the gas.
 const GALAXY_FRAMING_RADIUS: f32 = GALAXY_RADIUS + 0.1;
 const GALAXY_FRAMING_HALF_HEIGHT: f32 = GAS_HALF_HEIGHT;
 
-/// Stable transform anchor for the galaxy map's contents.
+/// Stable transform anchor for the galaxy backdrop's rotating contents.
 ///
 /// Later scene motion can rotate this entity without moving the camera or
 /// background star field.
 #[derive(Component, Debug)]
 pub struct GalaxyRoot;
 
-/// Marks decorative geometry that should never intercept planet picking.
+/// Marks the main galaxy's stellar geometry.
 #[derive(Component, Debug)]
 pub struct GalaxyDecorative;
 
-/// Marks the stationary backdrop so it can be excluded from picking and found in tests.
+/// Marks the stationary background stars surrounding the galaxy backdrop.
 #[derive(Component, Debug)]
 pub struct BackgroundStarfield;
 
@@ -58,11 +58,14 @@ struct GalaxyCamera {
 
 type GalaxyCameraFilter = (Without<GalaxyRoot>, Without<GalaxyCompanion>);
 
-/// Adds the scene and schedules free camera orbit, bounded zoom, and idle map rotation.
+/// Adds the backdrop and schedules free camera orbit, bounded zoom, and idle rotation.
 pub struct GalaxyMapPlugin;
 
 impl Plugin for GalaxyMapPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<TransformPlugin>() {
+            app.add_plugins(TransformPlugin);
+        }
         register_gas_material(app);
         register_star_material(app);
         app.init_resource::<ButtonInput<MouseButton>>()
@@ -86,7 +89,6 @@ impl Plugin for GalaxyMapPlugin {
 fn setup_galaxy_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut star_materials: ResMut<Assets<StarMaterial>>,
     mut gas_materials: ResMut<Assets<GalaxyGasMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -151,8 +153,8 @@ fn setup_galaxy_map(
         dust_settings,
     ));
 
-    // Place the galaxy right of the camera target to leave a clear area for the menu on the left.
-    // Parenting its geometry and planets together keeps idle rotation local to the map.
+    // Retain the initial composition while fitting to the whole window. Menu overlays
+    // do not reserve a separate scene viewport or change the camera framing.
     let root = commands
         .spawn((GalaxyRoot, Visibility::default(), galaxy_transform))
         .id();
@@ -169,57 +171,6 @@ fn setup_galaxy_map(
             GalaxyGas,
             Pickable::IGNORE,
         ));
-    });
-
-    let planet_mesh = meshes.add(Sphere::new(0.32).mesh().ico(3).unwrap());
-    // Positions and marker lighting are scene data; names and card copy live with PlanetId.
-    let planet_definitions = [
-        (
-            PlanetId::Vesper,
-            Vec3::new(-5.8, 0.10, 3.2),
-            Color::srgb(0.52, 0.81, 1.0),
-            LinearRgba::rgb(1.8, 6.0, 11.0),
-        ),
-        (
-            PlanetId::Kestrel,
-            Vec3::new(-2.1, -0.12, -4.2),
-            Color::srgb(1.0, 0.59, 0.40),
-            LinearRgba::rgb(11.0, 2.4, 0.7),
-        ),
-        (
-            PlanetId::Solace,
-            Vec3::new(2.4, 0.14, 5.8),
-            Color::srgb(0.79, 0.57, 1.0),
-            LinearRgba::rgb(5.0, 1.8, 11.0),
-        ),
-        (
-            PlanetId::Meridian,
-            Vec3::new(5.8, -0.08, 1.5),
-            Color::srgb(1.0, 0.75, 0.43),
-            LinearRgba::rgb(11.0, 5.0, 1.0),
-        ),
-        (
-            PlanetId::Halcyon,
-            Vec3::new(3.8, 0.09, -7.2),
-            Color::srgb(0.43, 0.91, 0.84),
-            LinearRgba::rgb(0.8, 8.0, 6.4),
-        ),
-    ];
-
-    commands.entity(root).with_children(|children| {
-        for (id, position, base_color, emissive) in planet_definitions {
-            let material = materials.add(StandardMaterial {
-                base_color,
-                emissive,
-                ..default()
-            });
-            children.spawn((
-                PlanetMarker { id },
-                Mesh3d(planet_mesh.clone()),
-                MeshMaterial3d(material),
-                Transform::from_translation(position),
-            ));
-        }
     });
 }
 

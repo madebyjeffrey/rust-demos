@@ -1,6 +1,7 @@
+mod common;
+
 use bevy::{
-    asset::{Assets, RenderAssetUsages},
-    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+    input::{ButtonState, mouse::MouseScrollUnit},
     picking::Pickable,
     prelude::*,
     render::{
@@ -9,31 +10,18 @@ use bevy::{
     },
     time::TimeUpdateStrategy,
 };
+use common::{launch_app, mouse_button, mouse_motion, mouse_scroll};
 use galaxy_menu::{
     BackgroundStarfield, GalaxyCompanion, GalaxyCompanionKind, GalaxyDecorative, GalaxyGas,
-    GalaxyMapPlugin, GalaxyRoot, MenuPlugin, PlanetMarker,
+    GalaxyRoot,
 };
 use std::time::Duration;
 
-fn launch_map() -> App {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
-            100,
-        )))
-        .insert_resource(Assets::<Mesh>::default())
-        .insert_resource(Assets::<StandardMaterial>::default())
-        .add_plugins((GalaxyMapPlugin, MenuPlugin));
-    app.update();
-    // Match the demo's default window; headless cameras otherwise use a square projection.
-    let world = app.world_mut();
-    let mut projection = world
-        .query_filtered::<&mut Projection, With<Camera3d>>()
-        .single_mut(world)
-        .unwrap();
-    if let Projection::Perspective(projection) = &mut *projection {
-        projection.aspect_ratio = 1280.0 / 720.0;
-    }
+fn launch_backdrop() -> App {
+    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+        100,
+    )));
     app
 }
 
@@ -53,28 +41,16 @@ fn mesh_positions<M: Component>(app: &mut App) -> Vec<[f32; 3]> {
 }
 
 #[test]
-fn galaxy_map_launches_with_an_angle_and_a_rotation_ready_root() {
-    let mut app = launch_map();
+fn galaxy_backdrop_launches_with_an_angled_view() {
+    let mut app = launch_backdrop();
     let world = app.world_mut();
 
-    let root = world
-        .query_filtered::<(Entity, &Visibility), With<GalaxyRoot>>()
-        .single(world)
-        .unwrap()
-        .0;
     let camera_transform = world
         .query_filtered::<&Transform, With<Camera3d>>()
         .single(world)
         .unwrap();
     assert!(camera_transform.translation.y > 0.0);
     assert!(camera_transform.forward().y < -0.2);
-
-    let planets = world
-        .query::<(&PlanetMarker, &ChildOf)>()
-        .iter(world)
-        .collect::<Vec<_>>();
-    assert_eq!(planets.len(), 5);
-    assert!(planets.iter().all(|(_, parent)| parent.parent() == root));
 
     let pickable = world
         .query_filtered::<&Pickable, With<GalaxyDecorative>>()
@@ -85,10 +61,10 @@ fn galaxy_map_launches_with_an_angle_and_a_rotation_ready_root() {
 
 #[test]
 fn galaxy_starfield_has_the_same_composition_between_launches() {
-    let first_galaxy = mesh_positions::<GalaxyDecorative>(&mut launch_map());
-    let second_galaxy = mesh_positions::<GalaxyDecorative>(&mut launch_map());
-    let first_background = mesh_positions::<BackgroundStarfield>(&mut launch_map());
-    let second_background = mesh_positions::<BackgroundStarfield>(&mut launch_map());
+    let first_galaxy = mesh_positions::<GalaxyDecorative>(&mut launch_backdrop());
+    let second_galaxy = mesh_positions::<GalaxyDecorative>(&mut launch_backdrop());
+    let first_background = mesh_positions::<BackgroundStarfield>(&mut launch_backdrop());
+    let second_background = mesh_positions::<BackgroundStarfield>(&mut launch_backdrop());
 
     assert!(
         first_galaxy.len() > 1_000,
@@ -104,7 +80,7 @@ fn galaxy_starfield_has_the_same_composition_between_launches() {
 
 #[test]
 fn dense_stars_and_non_pickable_gas_rotate_as_one_galaxy() {
-    let mut app = launch_map();
+    let mut app = launch_backdrop();
     let positions = mesh_positions::<GalaxyDecorative>(&mut app);
     let (stars, remainder) = positions.as_chunks::<4>();
     assert!(
@@ -182,22 +158,8 @@ fn dense_stars_and_non_pickable_gas_rotate_as_one_galaxy() {
 }
 
 #[test]
-fn planet_markers_are_few_and_keep_cpu_mesh_data_for_picking() {
-    let mut app = launch_map();
-    let world = app.world_mut();
-    let mut query = world.query::<(&PlanetMarker, &Mesh3d)>();
-    let planets = query.iter(world).collect::<Vec<_>>();
-
-    assert!((3..=7).contains(&planets.len()));
-    for (_, handle) in planets {
-        let mesh = world.resource::<Assets<Mesh>>().get(&handle.0).unwrap();
-        assert!(mesh.asset_usage.contains(RenderAssetUsages::MAIN_WORLD));
-    }
-}
-
-#[test]
 fn stellar_companions_are_decorative_and_populate_both_sides_of_the_disk() {
-    let mut app = launch_map();
+    let mut app = launch_backdrop();
     let world = app.world_mut();
     let root = *world
         .query_filtered::<&Transform, With<GalaxyRoot>>()
@@ -239,7 +201,7 @@ fn stellar_companions_are_decorative_and_populate_both_sides_of_the_disk() {
 
 #[test]
 fn companions_follow_different_inclined_orbits_and_pause_for_dragging() {
-    let mut app = launch_map();
+    let mut app = launch_backdrop();
     let world = app.world_mut();
     let root = *world
         .query_filtered::<&Transform, With<GalaxyRoot>>()
@@ -276,10 +238,8 @@ fn companions_follow_different_inclined_orbits_and_pause_for_dragging() {
         normals[0].dot(normals[1]).abs() < 0.95,
         "the companion orbits should use different planes"
     );
-    world
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    world.resource_mut::<AccumulatedMouseMotion>().delta = Vec2::new(20.0, 10.0);
+    mouse_button(&mut app, ButtonState::Pressed);
+    mouse_motion(&mut app, Vec2::new(20.0, 10.0));
     for _ in 0..5 {
         app.update();
     }
@@ -292,20 +252,16 @@ fn companions_follow_different_inclined_orbits_and_pause_for_dragging() {
 }
 
 #[test]
-fn mouse_drag_orbits_the_camera_around_the_galaxy_map() {
-    let mut app = launch_map();
+fn mouse_drag_orbits_the_camera_around_the_galaxy_backdrop() {
+    let mut app = launch_backdrop();
 
     let before = *app
         .world_mut()
         .query_filtered::<&Transform, With<Camera3d>>()
         .single(app.world())
         .unwrap();
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.world_mut()
-        .resource_mut::<AccumulatedMouseMotion>()
-        .delta = Vec2::new(90.0, -35.0);
+    mouse_button(&mut app, ButtonState::Pressed);
+    mouse_motion(&mut app, Vec2::new(90.0, -35.0));
 
     app.update();
 
@@ -319,8 +275,8 @@ fn mouse_drag_orbits_the_camera_around_the_galaxy_map() {
 }
 
 #[test]
-fn scroll_zoom_moves_the_camera_toward_the_galaxy_map() {
-    let mut app = launch_map();
+fn scroll_zoom_moves_the_camera_toward_the_galaxy_backdrop() {
+    let mut app = launch_backdrop();
 
     let target = Vec3::new(3.8, 0.0, 0.0);
     let before = app
@@ -330,9 +286,7 @@ fn scroll_zoom_moves_the_camera_toward_the_galaxy_map() {
         .unwrap()
         .translation
         .distance(target);
-    app.world_mut()
-        .resource_mut::<AccumulatedMouseScroll>()
-        .delta = Vec2::new(0.0, 1.0);
+    mouse_scroll(&mut app, MouseScrollUnit::Line, 1.0);
 
     app.update();
 
@@ -345,9 +299,7 @@ fn scroll_zoom_moves_the_camera_toward_the_galaxy_map() {
         .distance(target);
     assert!(after < before, "scrolling forward should zoom in");
 
-    app.world_mut()
-        .resource_mut::<AccumulatedMouseScroll>()
-        .delta = Vec2::new(0.0, 1_000.0);
+    mouse_scroll(&mut app, MouseScrollUnit::Line, 1_000.0);
     app.update();
     let closest = app
         .world_mut()
@@ -358,9 +310,7 @@ fn scroll_zoom_moves_the_camera_toward_the_galaxy_map() {
         .distance(target);
     assert!(closest >= 18.0 && closest < before);
 
-    app.world_mut()
-        .resource_mut::<AccumulatedMouseScroll>()
-        .delta = Vec2::new(0.0, -2_000.0);
+    mouse_scroll(&mut app, MouseScrollUnit::Line, -2_000.0);
     app.update();
     let farthest = app
         .world_mut()
@@ -374,10 +324,8 @@ fn scroll_zoom_moves_the_camera_toward_the_galaxy_map() {
 
 #[test]
 fn vertical_drag_completes_full_orbits_without_stopping_or_flipping() {
-    let mut app = launch_map();
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
+    let mut app = launch_backdrop();
+    mouse_button(&mut app, ButtonState::Pressed);
     let initial = app
         .world_mut()
         .query_filtered::<&Transform, With<Camera3d>>()
@@ -390,9 +338,7 @@ fn vertical_drag_completes_full_orbits_without_stopping_or_flipping() {
         let mut visited_above = false;
         let mut visited_below = false;
         for _ in 0..64 {
-            app.world_mut()
-                .resource_mut::<AccumulatedMouseMotion>()
-                .delta = Vec2::new(0.0, direction * step / 0.005);
+            mouse_motion(&mut app, Vec2::new(0.0, direction * step / 0.005));
             app.update();
             let transform = app
                 .world_mut()
@@ -422,7 +368,7 @@ fn vertical_drag_completes_full_orbits_without_stopping_or_flipping() {
 
 #[test]
 fn galaxy_idles_while_background_stars_stay_fixed() {
-    let mut app = launch_map();
+    let mut app = launch_backdrop();
     let root_before = app
         .world_mut()
         .query_filtered::<&Transform, With<GalaxyRoot>>()
@@ -455,18 +401,14 @@ fn galaxy_idles_while_background_stars_stay_fixed() {
 
 #[test]
 fn galaxy_rotation_pauses_while_camera_input_is_active() {
-    let mut app = launch_map();
+    let mut app = launch_backdrop();
     let root_before = *app
         .world_mut()
         .query_filtered::<&Transform, With<GalaxyRoot>>()
         .single(app.world())
         .unwrap();
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.world_mut()
-        .resource_mut::<AccumulatedMouseMotion>()
-        .delta = Vec2::new(90.0, -35.0);
+    mouse_button(&mut app, ButtonState::Pressed);
+    mouse_motion(&mut app, Vec2::new(90.0, -35.0));
 
     app.update();
 

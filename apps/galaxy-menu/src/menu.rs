@@ -1,8 +1,6 @@
-//! Sparse placeholder menu shown alongside the galaxy scene.
+//! Sparse placeholder menu over the full-window galaxy backdrop.
 
 use bevy::prelude::*;
-
-use crate::planet_interaction::BlocksPlanetInteraction;
 
 const BACKGROUND: Color = Color::srgb(0.025, 0.035, 0.09);
 const ACCENT: Color = Color::srgb(0.96, 0.66, 0.39);
@@ -115,7 +113,6 @@ fn action_text(label: &'static str, action: MenuAction, emphasis: MenuEmphasis) 
     };
 
     (
-        BlocksPlanetInteraction,
         Node {
             align_self: AlignSelf::FlexStart,
             ..default()
