@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 bevy = { version = "0.20.0", default-features = false, features = ["2d", "ui", "default_font", "bevy_pbr"] }
+
+[build-dependencies]
+cc = "1"

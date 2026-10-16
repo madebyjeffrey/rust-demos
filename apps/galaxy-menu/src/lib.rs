@@ -1,3 +1,4 @@
+mod frame_baseline;
 mod galaxy_companions;
 mod galaxy_gas;
 mod galaxy_map;
@@ -16,3 +17,13 @@ pub use planet_interaction::{
     PlanetInteractionInput, PlanetInteractionPlugin, PlanetInteractionState,
     PlanetSelectionHighlight,
 };
+
+/// Shared scene and menu composition used by desktop and the native iOS executable.
+pub struct GalaxyMenuPlugin;
+
+impl bevy::prelude::Plugin for GalaxyMenuPlugin {
+    fn build(&self, app: &mut bevy::prelude::App) {
+        app.add_plugins((GalaxyMapPlugin, PlanetInteractionPlugin, MenuPlugin));
+        frame_baseline::register(app);
+    }
+}
