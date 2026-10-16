@@ -109,9 +109,9 @@ can corroborate actual presentation and GPU behavior.
 Physical results and device acceptance are recorded in
 [native launch baseline](ios-baseline.md), which describes the initial launch
 milestone. The shared startup menu now provides tap controls for New Game, Load
-Game, and Settings, with Quit omitted on iPhone and iPad. Touch camera gestures,
-the full responsive layout, and the final 60 fps target belong to the remaining
-native-support tickets.
+Game, and Settings, with Quit omitted on iPhone and iPad. Touch camera gestures now share the desktop camera behavior; their verification
+status is recorded below. The full responsive layout and final 60 fps target
+remain in the later native-support tickets.
 
 ## Desktop smoke
 
@@ -176,3 +176,56 @@ full responsive layout and physical-device performance tuning continue in
 [#11](https://github.com/madebyjeffrey/rust-demos/issues/11),
 [#12](https://github.com/madebyjeffrey/rust-demos/issues/12) and
 [#13](https://github.com/madebyjeffrey/rust-demos/issues/13).
+
+
+## Touch-navigation verification — 2026-10-16
+
+[Ticket #11](https://github.com/madebyjeffrey/rust-demos/issues/11) is implemented
+in [PR #18](https://github.com/madebyjeffrey/rust-demos/pull/18). One backdrop
+finger orbits continuously through the poles; two backdrop fingers change bounded
+zoom. Adding, removing or cancelling fingers rebases the remaining gesture.
+Focus loss and application suspension discard stale tracking. A touch beginning
+on a control retains UI ownership even outside its bounds; independent backdrop
+touches can still orbit or pinch around it. Galaxy and companion idle motion
+pauses while touches are held, then resumes after release. Mouse drag and wheel
+zoom continue to use the existing camera behavior.
+
+All 50 workspace tests pass, including 11 new assembled-app regressions supplying
+real touch, window-focus and lifecycle messages. They cover movement without
+replaying held deltas, zoom bounds, pole crossings, finger transitions,
+cancellation, reused touch IDs and ordered event batches, UI/backdrop ownership,
+and galaxy/companion idle coordination. Formatting, strict all-target Clippy and
+diff checks pass. The independent standards and spec reviews have no remaining
+actionable findings after sharing the orbit and interruption-reset logic.
+
+The reviewed source at `00449ba` builds a development-signed ARM64 iOS release.
+Signature verification and installation succeeded on both registered baseline
+devices. The installed executable has SHA-256:
+
+```text
+048aaf2a882bbc42fa1b01f27345734016ec94b7f6969666649af854dc232a80
+```
+
+| Physical device | OS | Signed release | Gesture acceptance |
+| --- | --- | --- | --- |
+| iPhone 17 Pro | iOS 27.0.1 | Installed | Pending XCTest UI-automation authentication |
+| iPad mini (6th generation) | iPadOS 27.0.1 | Installed | Pending device unlock |
+
+**Physical gesture acceptance is still open.** The temporary signed XCTest runner
+was blocked before executing its tests by the iPhone's system prompt, “Enter
+iPhone Passcode for XCTest / Enable UI Automation.” The iPad requires its owner
+to unlock it. These are device authentication prerequisites; no physical touch
+interaction is claimed from compilation, installation or the app-level suite.
+The PR remains draft and the issue remains open until both device checks pass.
+
+To complete acceptance after unlocking the devices and authorizing native UI
+automation, launch the installed release in portrait and inspect the rendered
+backdrop. Drag in unused space, continue vertical drags through the poles, pinch
+in both directions, then orbit again. Add and remove a pinch finger and cancel a
+gesture using a system interruption; the next gesture must resume without a
+jump. Drag from a menu control into the backdrop and confirm that the camera
+stays captured by the UI, then verify a fresh backdrop gesture. Background and
+reactivate the app, and verify fresh orbit and menu taps. Repeat on both devices
+and record settled before/after screenshots and the source/binary identity.
+Temporary native test results and signing material stay local under ignored
+`target/ios/` or the temporary acceptance directory.
