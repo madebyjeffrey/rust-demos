@@ -153,13 +153,16 @@ pub fn window_focus(app: &mut App, focused: bool) {
 
 pub fn mouse_scroll(app: &mut App, unit: MouseScrollUnit, y: f32) {
     let window = primary_window(app);
-    app.world_mut().write_message(MouseWheel {
+    let input = MouseWheel {
         unit,
         x: 0.0,
         y,
         window,
         phase: TouchPhase::Moved,
-    });
+    };
+    app.world_mut().write_message(input);
+    app.world_mut()
+        .write_message(WindowEvent::MouseWheel(input));
 }
 
 pub fn point_cursor(app: &mut App, position: Vec2, click: bool) {

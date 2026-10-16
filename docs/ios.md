@@ -107,9 +107,11 @@ scenario when repeating it. Instruments' Game Performance or Metal System Trace
 can corroborate actual presentation and GPU behavior.
 
 Physical results and device acceptance are recorded in
-[native launch baseline](ios-baseline.md). Touch input, responsive layout, replacement
-menu controls and the final 60 fps target belong to the remaining native-support
-tickets; the initial launch intentionally retains the current desktop scene/menu.
+[native launch baseline](ios-baseline.md), which describes the initial launch
+milestone. The shared startup menu now provides tap controls for New Game, Load
+Game, and Settings, with Quit omitted on iPhone and iPad. Touch camera gestures,
+the full responsive layout, and the final 60 fps target belong to the remaining
+native-support tickets.
 
 ## Desktop smoke
 
@@ -122,4 +124,6 @@ GALAXY_FRAME_BASELINE=1 cargo run -p galaxy-menu --release
 
 The shared-application integration test assembles the real scene and menu, checks
 that they are present, sends mouse drag input and observes camera movement.
-Existing scene, menu, camera and display-scale regressions continue to run.
+Menu integration tests send real pointer, touch, keyboard, and focus events and
+check feedback, activation, desktop exit, and camera ownership. Existing scene,
+menu, camera and display-scale regressions continue to run.

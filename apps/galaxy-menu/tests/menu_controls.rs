@@ -320,3 +320,36 @@ fn losing_window_focus_cancels_menu_presses_and_suppresses_a_stale_mouse_drag() 
     app.update();
     assert!(before.rotation.angle_between(camera(&mut app).rotation) > 0.1);
 }
+
+#[test]
+fn a_mouse_press_keeps_its_starting_owner_when_movement_arrives_in_the_same_frame() {
+    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
+    let (_, center) = button(&mut app, MenuAction::NewGame);
+    let before = camera(&mut app);
+    move_cursor(&mut app, center);
+    mouse_button(&mut app, ButtonState::Pressed);
+    move_cursor(&mut app, Vec2::new(1000.0, 600.0));
+    mouse_motion(&mut app, Vec2::new(70.0, 20.0));
+    app.update();
+    assert_eq!(
+        camera(&mut app),
+        before,
+        "ownership comes from the press position, even if the cursor has already moved away by the next frame"
+    );
+}
+
+#[test]
+fn wheel_input_over_a_button_does_not_zoom_when_the_cursor_moves_away_in_the_same_frame() {
+    let mut app = launch_app(UVec2::new(1280, 720), 1.0);
+    let (_, center) = button(&mut app, MenuAction::NewGame);
+    let before = camera(&mut app);
+    move_cursor(&mut app, center);
+    mouse_scroll(&mut app, bevy::input::mouse::MouseScrollUnit::Line, -1.0);
+    move_cursor(&mut app, Vec2::new(1000.0, 600.0));
+    app.update();
+    assert_eq!(
+        camera(&mut app),
+        before,
+        "wheel ownership comes from its input position"
+    );
+}

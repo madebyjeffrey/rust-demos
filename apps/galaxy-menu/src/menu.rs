@@ -17,7 +17,7 @@ use bevy::{
     prelude::*,
     ui::{Pressed, UiGlobalTransform},
     ui_widgets::{Activate, Button},
-    window::{PrimaryWindow, WindowFocused},
+    window::{PrimaryWindow, WindowEvent, WindowFocused},
 };
 
 const BACKGROUND: Color = Color::srgb(0.025, 0.035, 0.09);
@@ -53,6 +53,7 @@ struct KeyboardPress(Option<(Entity, KeyCode)>);
 pub(crate) struct MenuInputOwnership {
     mouse_captured: bool,
     mouse_cancelled: bool,
+    mouse_position: Option<Vec2>,
     touch_captures: HashMap<(Entity, u64), Entity>,
     /// Includes released UI touches for the current frame so camera gesture readers
     /// can reject their final input as well as their active movement.
@@ -81,11 +82,16 @@ impl Plugin for MenuPlugin {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bevy injects independent input resources into this system"
+)]
 fn capture_menu_input(
     mut commands: Commands,
     mut ownership: ResMut<MenuInputOwnership>,
     mut touches: MessageReader<TouchInput>,
     mut focus_events: MessageReader<WindowFocused>,
+    mut window_events: MessageReader<WindowEvent>,
     mut keyboard: ResMut<KeyboardPress>,
     mut focus: ResMut<InputFocus>,
     mut focus_visible: ResMut<InputFocusVisible>,
@@ -144,21 +150,59 @@ fn capture_menu_input(
             TouchPhase::Started | TouchPhase::Moved => {}
         }
     }
+    let control_at = |position| {
+        buttons.iter().any(|(_, node, transform, visible)| {
+            visible.get() && node.contains_point(*transform, position)
+        })
+    };
     let hovered = focused
         && windows
             .single()
             .ok()
             .and_then(Window::physical_cursor_position)
-            .is_some_and(|position| {
-                buttons.iter().any(|(_, node, transform, visible)| {
-                    visible.get() && node.contains_point(*transform, position)
-                })
-            });
-    if focused && mouse.just_pressed(MouseButton::Left) {
-        ownership.mouse_captured = hovered;
+            .is_some_and(control_at);
+    let mut captured_this_frame = ownership.mouse_captured;
+    let mut scroll_over_control = false;
+    let mut saw_press = false;
+    // Replay native pointer events in order: the final cursor position can already
+    // be outside the control when a frame receives both a press and a movement.
+    for event in window_events.read() {
+        match event {
+            WindowEvent::CursorMoved(event) => {
+                if let Ok(window) = windows.get(event.window) {
+                    ownership.mouse_position = Some(event.position * window.scale_factor());
+                }
+            }
+            WindowEvent::CursorLeft(event) if windows.contains(event.window) => {
+                ownership.mouse_position = None;
+            }
+            WindowEvent::MouseButtonInput(event)
+                if event.button == MouseButton::Left && windows.contains(event.window) =>
+            {
+                if event.state == ButtonState::Pressed && focused {
+                    saw_press = true;
+                    ownership.mouse_captured = ownership.mouse_position.is_some_and(control_at);
+                    captured_this_frame |= ownership.mouse_captured;
+                } else if event.state == ButtonState::Released {
+                    ownership.mouse_captured = false;
+                }
+            }
+            WindowEvent::MouseWheel(event) if windows.contains(event.window) => {
+                scroll_over_control |= ownership.mouse_position.is_some_and(control_at);
+            }
+            _ => {}
+        }
     }
-    ownership.blocks_mouse = ownership.mouse_captured || ownership.mouse_cancelled || !focused;
-    ownership.blocks_scroll = ownership.blocks_mouse || hovered || !ownership.ui_touches.is_empty();
+    // Applications may also supply Bevy's direct mouse input without WindowEvent.
+    if !saw_press && focused && mouse.just_pressed(MouseButton::Left) {
+        ownership.mouse_captured = hovered;
+        captured_this_frame |= ownership.mouse_captured;
+    }
+    ownership.blocks_mouse = captured_this_frame || ownership.mouse_cancelled || !focused;
+    ownership.blocks_scroll = ownership.blocks_mouse
+        || hovered
+        || scroll_over_control
+        || !ownership.ui_touches.is_empty();
     if !mouse.pressed(MouseButton::Left) {
         ownership.mouse_captured = false;
         ownership.mouse_cancelled = false;
@@ -276,6 +320,10 @@ fn keyboard_feedback(
     }
 }
 
+#[expect(
+    clippy::type_complexity,
+    reason = "The query reads button feedback and updates its two visual properties"
+)]
 fn style_buttons(
     mut buttons: Query<
         (
