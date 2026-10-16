@@ -319,7 +319,21 @@ fn scroll_zoom_moves_the_camera_toward_the_galaxy_backdrop() {
         .unwrap()
         .translation
         .distance(target);
-    assert!((farthest - 72.0).abs() < 0.001);
+    assert!(farthest > before);
+    mouse_button(&mut app, ButtonState::Pressed);
+    mouse_scroll(&mut app, MouseScrollUnit::Line, -2_000.0);
+    app.update();
+    let bounded = app
+        .world_mut()
+        .query_filtered::<&Transform, With<Camera3d>>()
+        .single(app.world())
+        .unwrap()
+        .translation
+        .distance(target);
+    assert!(
+        (bounded - farthest).abs() < 0.001,
+        "zoom remains bounded relative to the fitted galaxy"
+    );
 }
 
 #[test]
