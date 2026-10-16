@@ -43,15 +43,6 @@ fn capture_frame(
             "GALAXY_STARTUP first_update_ms={:.3}",
             now.duration_since(baseline.started).as_secs_f64() * 1000.0
         );
-        if let Ok(window) = window.single() {
-            println!(
-                "GALAXY_CONFIG physical_width={} physical_height={} scale={} present_mode={:?}",
-                window.physical_width(),
-                window.physical_height(),
-                window.scale_factor(),
-                window.present_mode
-            );
-        }
         baseline.first_frame = Some(now);
         baseline.previous = now;
         return;
@@ -67,6 +58,15 @@ fn capture_frame(
     }
     if elapsed >= Duration::from_secs(70) {
         // Printing during capture would add console transport cost to the next frame.
+        if let Ok(window) = window.single() {
+            println!(
+                "GALAXY_CONFIG physical_width={} physical_height={} scale={} present_mode={:?}",
+                window.physical_width(),
+                window.physical_height(),
+                window.scale_factor(),
+                window.present_mode
+            );
+        }
         report("warmup", &baseline.warmup);
         report("steady", &baseline.steady);
         baseline.complete = true;
