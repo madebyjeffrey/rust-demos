@@ -63,3 +63,13 @@ is available. Ticket #8 remains open until that acceptance is complete.
 
 Touch gestures, responsive layout, menu controls and final 60 fps tuning remain
 in the sibling native-support tickets.
+
+## Desktop release smoke
+
+The local macOS host built the same application successfully with
+`cargo build --release --locked --offline -p galaxy-menu`. A live release-app
+screenshot showed the galaxy, gas, companions and menu, and mouse drag orbit and
+wheel zoom remained responsive. The opt-in 70-second desktop cadence capture also
+completed at 1280×720 physical pixels, scale 1 and Fifo presentation. This is
+desktop smoke evidence; it is separate from the physical iPad measurements above
+and does not substitute for the pending iPhone acceptance.
