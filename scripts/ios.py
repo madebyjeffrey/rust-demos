@@ -25,10 +25,6 @@ BUILD = ROOT / "target" / "ios"
 APP = BUILD / "Galaxy Menu.app"
 
 
-def run(args, **kwargs):
-    return subprocess.run(args, check=True, **kwargs)
-
-
 def private_output(args):
     # Tool errors may include device/account identifiers; keep raw output local.
     result = subprocess.run(args, capture_output=True)
@@ -94,7 +90,7 @@ def build():
     profile, identity, entitlements = signing(udid)
     env = dict(os.environ, IPHONEOS_DEPLOYMENT_TARGET="27.0")
     target = Path(env.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
-    run(["cargo", "build", "-p", "galaxy-menu", "--bin", "galaxy-menu", "--release", "--target", "aarch64-apple-ios"], cwd=ROOT, env=env)
+    subprocess.run(["cargo", "build", "-p", "galaxy-menu", "--bin", "galaxy-menu", "--release", "--target", "aarch64-apple-ios"], check=True, cwd=ROOT, env=env)
     if APP.exists():
         shutil.rmtree(APP)
     APP.mkdir(parents=True)
