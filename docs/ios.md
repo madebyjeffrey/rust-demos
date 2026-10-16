@@ -93,7 +93,9 @@ Samples are buffered until capture finishes to keep per-frame console transport
 out of the measurement. The capture reports sample count, mean, p50/p95/p99,
 maximum and the number/percentage over the exact `1000/60` ms budget. Tiny timing
 variations near that threshold do not independently prove a visible dropped frame.
-Startup and warm-up are excluded from the steady distribution.
+Startup and warm-up are excluded from the steady distribution. Window configuration
+is logged at capture completion, after native window sizing has replaced the startup
+defaults.
 
 The initial scene is unchanged: native display resolution, Fifo presentation,
 4× MSAA, depth prepass, natural bloom, 64,000 main galaxy stars, 4,000 background
