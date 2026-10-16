@@ -106,7 +106,7 @@ settings, startup, both measurement phases, source/build identity and interactio
 scenario when repeating it. Instruments' Game Performance or Metal System Trace
 can corroborate actual presentation and GPU behavior.
 
-Physical results and remaining device acceptance are recorded in
+Physical results and device acceptance are recorded in
 [native launch baseline](ios-baseline.md). Touch input, responsive layout, replacement
 menu controls and the final 60 fps target belong to the remaining native-support
 tickets; the initial launch intentionally retains the current desktop scene/menu.

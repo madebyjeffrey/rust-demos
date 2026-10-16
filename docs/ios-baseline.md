@@ -1,4 +1,4 @@
-# Native launch baseline — 2026-10-15
+# Native launch baselines — 2026-10-15
 
 Ticket: [Launch Galaxy Menu on iPhone and iPad (#8)](https://github.com/madebyjeffrey/rust-demos/issues/8).
 
@@ -53,16 +53,57 @@ Raw per-frame samples were retained locally in ignored
 `target/ios/ipad-galaxy.png`. Those raw artifacts may be preserved separately from
 worktree cleanup. Signing profiles, entitlements and device identifiers stay local.
 
-## Remaining physical acceptance
+## Physical iPhone acceptance
 
-**iPhone 17 Pro / iOS 27.0.1: pending.** The local development profile includes the
-registered phone, but no phone installation, visible-rendering check or frame-time
-capture is claimed. The owner directed this run to use the available iPad for now.
-Repeat the documented build/install/launch/visual/baseline workflow when the phone
-is available. Ticket #8 remains open until that acceptance is complete.
+The development-signed release installed and launched on the registered
+**iPhone 17 Pro, iOS 27.0.1**. A native screenshot verified the galaxy, gas,
+background stars, companions and existing menu rendered together. The portrait
+window settled at **1206×2622 physical pixels (402×874 logical, scale 3), Fifo**.
+The existing menu overlap is outside this launch ticket; the sibling removal,
+controls and responsive-layout tickets retain that work.
 
-Touch gestures, responsive layout, menu controls and final 60 fps tuning remain
-in the sibling native-support tickets.
+The build used the same Cargo release target, toolchain and unchanged rendering
+settings listed above. Source commit `de25965` includes a telemetry correction:
+window configuration is sampled at capture completion, after native resize/scale
+events have settled, instead of reporting the default window before startup
+synchronization. This changes metadata reporting only; the scene, effects and
+rendering resolution policy are unchanged from the iPad build. The installed,
+development-signed executable's SHA-256 was:
+
+```text
+b948539d41334cb00872a2bec8090551a9d8275e5f9dcc2d1e6aec484ad5bcb6
+```
+
+This was a repeat launch after verifying visible rendering. Driver shader caches
+were not cleared. Capture used idle foreground animation with no injected input or
+screenshots during measurement. The phone was connected to the Mac; thermal state
+was not sampled. Startup from shared-plugin registration to the first app update
+was **145.388 ms**, followed by 10 seconds of warm-up and 60 seconds of steady
+capture. The raw steady intervals totalled **60.026 seconds**.
+
+| Phase | Frames | Mean ms | p50 ms | p95 ms | p99 ms | Maximum ms | Frames >16.667 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Warm-up | 581 | 17.198 | 16.714 | 21.193 | 36.879 | 53.268 | 301 (51.81%) |
+| Steady idle | 2,611 | 22.990 | 17.194 | 36.082 | 39.388 | 51.728 | 1,559 (59.71%) |
+
+This initial native-resolution baseline **does not meet the 60 fps target**; its
+mean application-loop cadence is about 43.5 frames/second. As with the iPad,
+these are frame-loop intervals, not direct GPU execution or presented-frame
+timings. No resolution or effects reduction was applied. Final interaction
+profiling and tuning remain in ticket #13.
+
+The final raw capture and verified screenshot were retained locally in ignored
+`target/ios/iphone-baseline.log` and `target/ios/iphone-galaxy.png`, with a private
+copy preserved separately from worktree cleanup. Ordinary launch was checked again
+after measurement and the application was left open on the phone.
+
+## Launch acceptance complete
+
+Both registered physical devices now have signed release installation, visible
+galaxy rendering and separate warm-up/steady baselines recorded. Together with the
+shared-application regression and desktop smoke below, this completes ticket #8's
+launch acceptance. Touch gestures, responsive layout, menu controls and final
+60 fps tuning remain in the sibling native-support tickets.
 
 ## Desktop release smoke
 
@@ -71,5 +112,4 @@ The local macOS host built the same application successfully with
 screenshot showed the galaxy, gas, companions and menu, and mouse drag orbit and
 wheel zoom remained responsive. The opt-in 70-second desktop cadence capture also
 completed at 1280×720 physical pixels, scale 1 and Fifo presentation. This is
-desktop smoke evidence; it is separate from the physical iPad measurements above
-and does not substitute for the pending iPhone acceptance.
+desktop smoke evidence; it is separate from the physical-device measurements above.
