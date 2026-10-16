@@ -1,11 +1,11 @@
-use bevy::{MinimalPlugins, prelude::*};
-use galaxy_menu::{MenuAction, MenuEmphasis, MenuPlugin};
+mod common;
+
+use bevy::prelude::*;
+use galaxy_menu::{MenuAction, MenuEmphasis};
 
 #[test]
 fn menu_app_shows_primary_and_secondary_actions() {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins).add_plugins(MenuPlugin);
-    app.update();
+    let mut app = common::launch_app(UVec2::new(1280, 720), 1.0);
 
     let world = app.world_mut();
     let mut query = world.query::<(&MenuAction, &MenuEmphasis, &Text)>();

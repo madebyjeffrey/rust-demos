@@ -16,6 +16,7 @@ use crate::{
         GAS_HALF_HEIGHT, GalaxyDustUniform, GalaxyGas, GalaxyGasMaterial,
         build_galaxy_medium_volumes, register_gas_material,
     },
+    menu::MenuInputOwnership,
     starfield::{
         GALAXY_RADIUS, StarMaterial, build_background_starfield, build_galaxy_starfield,
         register_star_material,
@@ -201,13 +202,16 @@ fn orbit_galaxy_camera(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
+    menu_input: Option<Res<MenuInputOwnership>>,
 ) {
     let Ok((mut transform, mut camera, projection)) = cameras.single_mut() else {
         return;
     };
 
     // Rotate around the current view axes so dragging stays continuous through the poles.
-    if mouse_buttons.pressed(MouseButton::Left) {
+    if mouse_buttons.pressed(MouseButton::Left)
+        && !menu_input.as_ref().is_some_and(|input| input.blocks_mouse)
+    {
         let delta = mouse_motion.delta * -ORBIT_SENSITIVITY;
         let rotation = Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
         camera.orientation = (camera.orientation * rotation).normalize();
@@ -217,7 +221,7 @@ fn orbit_galaxy_camera(
         MouseScrollUnit::Line => mouse_scroll.delta.y,
         MouseScrollUnit::Pixel => mouse_scroll.delta.y / 100.0,
     };
-    if scroll != 0.0 {
+    if scroll != 0.0 && !menu_input.as_ref().is_some_and(|input| input.blocks_scroll) {
         camera.distance *= (-scroll * ZOOM_SENSITIVITY).exp();
     }
 
