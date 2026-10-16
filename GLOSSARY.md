@@ -1,13 +1,9 @@
 # Galaxy Menu Prototype
 
-A startup-screen prototype centered on a galaxy that users can inspect.
+A startup-screen prototype with menu actions over an interactive galaxy backdrop.
 
 ## Language
 
-**Galaxy map**:
-The spatial view of a galaxy containing selectable planets.
-_Avoid_: galaxy image, backdrop
-
-**Planet**:
-A world represented as a selectable destination on the galaxy map.
-_Avoid_: star system
+**Galaxy backdrop**:
+The galaxy scene behind the startup menu that users can explore by orbiting and zooming.
+_Avoid_: galaxy map, galaxy image

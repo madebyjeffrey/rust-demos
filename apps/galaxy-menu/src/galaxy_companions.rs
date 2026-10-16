@@ -17,7 +17,7 @@ pub enum GalaxyCompanionKind {
     GlobularCluster,
 }
 
-/// Decorative stellar systems, separate from the selectable destination markers.
+/// Stellar companions orbiting independently around the galaxy backdrop.
 #[derive(Component, Debug)]
 pub struct GalaxyCompanion {
     pub kind: GalaxyCompanionKind,
