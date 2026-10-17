@@ -9,6 +9,12 @@ fn controls_reflow_inside_narrow_short_rotated_and_multitasking_windows() {
     for scale in [1.0, 2.0, 3.0] {
         let mut app = launch_app(UVec2::new(1280, 720) * scale as u32, scale);
         for logical in [
+            UVec2::new(320, 200),
+            UVec2::new(360, 160),
+            UVec2::new(280, 160),
+            UVec2::new(240, 200),
+            UVec2::new(240, 600),
+            UVec2::new(600, 100),
             UVec2::new(240, 240),
             UVec2::new(280, 240),
             UVec2::new(280, 320),
@@ -70,11 +76,11 @@ fn assert_controls_fit(app: &mut App, usable: Rect, scale: f32) {
             "{action:?} has measured visible glyphs"
         );
         assert!(
-            text.size.x <= node.content_size().x + 0.5
-                && text.size.y <= node.content_size().y + 0.5,
-            "{action:?} label {:?} must fit its content area {:?}",
+            text.size.x <= node.content_box().size().x + 0.5
+                && text.size.y <= node.content_box().size().y + 0.5,
+            "{action:?} label {:?} must fit its content area {:?} in {usable:?}",
             text.size,
-            node.content_size()
+            node.content_box().size()
         );
         for previous in &bounds {
             assert!(
@@ -115,6 +121,23 @@ fn changing_safe_areas_keeps_controls_inside_the_current_usable_window() {
                     top: 24.0,
                     bottom: 20.0,
                     ..default()
+                },
+            ),
+            (
+                UVec2::new(320, 200),
+                WindowSafeArea {
+                    top: 24.0,
+                    bottom: 20.0,
+                    ..default()
+                },
+            ),
+            (
+                UVec2::new(320, 200),
+                WindowSafeArea {
+                    left: 20.0,
+                    right: 20.0,
+                    top: 20.0,
+                    bottom: 20.0,
                 },
             ),
             (
