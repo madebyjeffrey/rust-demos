@@ -72,12 +72,15 @@ plugin, or update it when comparing rendering policies in an acceptance harness.
 Native scene pacing uses a scene-owned `UIUpdateLink` with continuous updates
 and a preferred 60 Hz range while the scene is active. It is disabled when the
 scene resigns active and released on disconnect. The link supplies timing
-preferences; winit and Bevy keep render and input ownership. This is a measured
-candidate, not a guarantee that iOS will deliver the requested rate. Apple
-[documents UIUpdateLink preferences separately from optional callbacks](https://developer.apple.com/documentation/uikit/uiupdatelink),
+preferences and receives phase notifications through a registered action;
+winit and Bevy keep render and input ownership. Physical launch on iOS27 showed
+that `requiresContinuousUpdates` throws an exception if no phase action is
+registered. The action therefore exists before continuous updates are enabled
+and only receives the notification; it does not render or dispatch Bevy input.
+Apple [documents UIUpdateLink actions and preferences](https://developer.apple.com/documentation/uikit/uiupdatelink),
 and [requiresContinuousUpdates](https://developer.apple.com/documentation/uikit/uiupdatelink/requirescontinuousupdates)
-requests ongoing UIKit updates. Physical captures determine whether the request
-improves sustained delivery. The
+requests ongoing UIKit updates. The requested rate remains a candidate until
+physical captures establish sustained delivery. The
 [phone high-refresh plist key](https://developer.apple.com/documentation/bundleresources/information-property-list/cadisableminimumframedurationonphone)
 unlocks rates above the system default; a 60 Hz request does not need that opt-in.
 

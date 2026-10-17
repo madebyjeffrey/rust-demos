@@ -31,11 +31,17 @@ static void attachWindow(UIWindow *window, UIWindowScene *scene) {
     }
     galaxyScene = (UIWindowScene *)scene;
     attachWindow(galaxyWindow, galaxyScene);
-    // UIUpdateLink can express UI update preferences without owning rendering
-    // callbacks. Request display-aligned 60 Hz updates for winit's existing loop.
+    // Request display-aligned 60 Hz UI updates for winit's existing loop.
+    // The link receives phase notifications; Bevy keeps rendering ownership.
     self.updateLink.enabled = NO;
     self.updateLink = [UIUpdateLink updateLinkForWindowScene:galaxyScene];
     self.updateLink.enabled = NO;
+    // iOS 27 rejects continuous links without a registered phase action.
+    // Observe the notification only; winit still schedules and renders frames.
+    [self.updateLink addActionWithHandler:^(UIUpdateLink *link, UIUpdateInfo *info) {
+        (void)link;
+        (void)info;
+    }];
     self.updateLink.requiresContinuousUpdates = YES;
     self.updateLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
     self.updateLink.enabled = scene.activationState == UISceneActivationStateForegroundActive;
