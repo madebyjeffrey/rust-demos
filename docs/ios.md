@@ -178,7 +178,7 @@ full responsive layout and physical-device performance tuning continue in
 [#13](https://github.com/madebyjeffrey/rust-demos/issues/13).
 
 
-## Touch-navigation verification — 2026-10-16
+## Touch-navigation acceptance — 2026-10-17
 
 [Ticket #11](https://github.com/madebyjeffrey/rust-demos/issues/11) is implemented
 in [PR #18](https://github.com/madebyjeffrey/rust-demos/pull/18). One backdrop
@@ -208,8 +208,8 @@ devices. The installed executable has SHA-256:
 
 | Physical device | OS | Signed release | Gesture acceptance |
 | --- | --- | --- | --- |
-| iPhone 17 Pro | iOS 27.0.1 | Installed previously | Pending device availability |
-| iPad mini (6th generation) | iPadOS 27.0.1 | Installed and verified | Pass |
+| iPhone 17 Pro | iOS 27.0.1 | Installed and verified | Pass (2026-10-17) |
+| iPad mini (6th generation) | iPadOS 27.0.1 | Installed and verified | Pass (2026-10-16) |
 
 The iPad was released after the independent #12 layout checks. Before installing
 #11 again, the signed bundle's executable hash was verified against the value
@@ -224,20 +224,34 @@ and the final fresh drag responds after interruption. The temporary iPad runner
 was removed and the reviewed #11 app was left foreground. The #12 binary and
 results were not used as #11 gesture evidence.
 
-**Physical iPhone acceptance is still open.** The iPhone is unavailable, as
-confirmed by the owner during coordinated device testing. Its earlier XCTest
-attempt stopped before test execution at the system passcode prompt for enabling
-UI automation. The iPad result does not substitute for that missing iPhone run;
-the PR remains draft and the issue remains open until the iPhone check passes.
+The iPhone became available on 2026-10-17. Device access was coordinated with
+#12: #11 used exclusive slots, then explicitly handed the phone back for #12's
+independent layout checks and final installation. The same verified #11 signed
+binary completed the final native gesture sequence in 44.887 seconds with zero
+failures. All eight whole-screen captures were inspected without notification
+overlays. They show orbit and pole-crossing changes, pinch scaling in both
+directions, a fresh orbit after pinching, unchanged camera framing during the
+UI-owned drag, and a working new orbit after background/reactivation. The runner
+restored the original device orientation and was removed before handback.
 
-To complete acceptance after unlocking the devices and authorizing native UI
+An earlier iPhone run had a transient system notification intercept several
+gestures despite the runner reporting success; that run was excluded from
+acceptance. The clean runner dismissed notification banners before gestures and
+rejected captures when a banner interrupted a gesture. No notification contents
+or personal device/signing identifiers are part of the acceptance record.
+
+Both baseline devices now pass physical gesture acceptance for #11. PR #18 is
+ready for review and closes the issue when merged. The #12 layout build and its
+results remain separate from this touch-navigation evidence.
+
+To repeat acceptance after unlocking the devices and authorizing native UI
 automation, launch the installed release in portrait and inspect the rendered
 backdrop. Drag in unused space, continue vertical drags through the poles, pinch
 in both directions, then orbit again. Add and remove a pinch finger and cancel a
 gesture using a system interruption; the next gesture must resume without a
 jump. Drag from a menu control into the backdrop and confirm that the camera
-stays still while the UI owns the gesture, then verify a fresh backdrop gesture. Background and
-reactivate the app, and verify fresh orbit and menu taps. Repeat on both devices
+stays still while the UI owns the gesture, then verify a fresh backdrop gesture.
+Background and reactivate the app, and verify fresh orbit and menu taps. Repeat on both devices
 and record settled before/after screenshots and the source/binary identity.
 Temporary native test results and signing material stay local under ignored
 `target/ios/` or the temporary acceptance directory.
