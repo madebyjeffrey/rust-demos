@@ -75,7 +75,6 @@ All following rows are 60-second requested steady phases, with warmup excluded.
 
 | Device / scenario | Native fps | Final fps | Final frames / measured s | Mean ms | p50 ms | p95 ms | p99 ms | Max ms | >16.667 ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-
 | ipad / idle | 39.99 | 59.99 | 3600 / 60.007 | 16.669 | 16.641 | 28.981 | 29.561 | 30.903 | 1728 (48.00%) |
 | ipad / orbit | 40.23 | 59.91 | 3596 / 60.019 | 16.691 | 16.654 | 27.714 | 29.641 | 34.708 | 1765 (49.08%) |
 | ipad / pinch | 41.05 | 59.93 | 3597 / 60.023 | 16.687 | 16.662 | 18.997 | 29.577 | 36.323 | 1791 (49.79%) |
