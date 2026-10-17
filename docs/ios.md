@@ -208,15 +208,27 @@ devices. The installed executable has SHA-256:
 
 | Physical device | OS | Signed release | Gesture acceptance |
 | --- | --- | --- | --- |
-| iPhone 17 Pro | iOS 27.0.1 | Installed | Pending XCTest UI-automation authentication |
-| iPad mini (6th generation) | iPadOS 27.0.1 | Installed | Pending device unlock |
+| iPhone 17 Pro | iOS 27.0.1 | Installed previously | Pending device availability |
+| iPad mini (6th generation) | iPadOS 27.0.1 | Installed and verified | Pass |
 
-**Physical gesture acceptance is still open.** The temporary signed XCTest runner
-was blocked before executing its tests by the iPhone's system prompt, “Enter
-iPhone Passcode for XCTest / Enable UI Automation.” The iPad requires its owner
-to unlock it. These are device authentication prerequisites; no physical touch
-interaction is claimed from compilation, installation or the app-level suite.
-The PR remains draft and the issue remains open until both device checks pass.
+The iPad was released after the independent #12 layout checks. Before installing
+#11 again, the signed bundle's executable hash was verified against the value
+above. A temporary signed XCTest runner then launched that #11 build in portrait
+and completed the native gesture sequence in 40.410 seconds with zero failures:
+a backdrop drag, three further vertical drags through the poles, pinch in both
+directions, a fresh single-finger orbit after pinching, a drag beginning on New
+Game followed by a fresh tap, and background/reactivation followed by another
+orbit. Eight retained screenshots were inspected: camera orbit changes the
+backdrop, pinch changes its scale, the UI-owned drag preserves camera framing,
+and the final fresh drag responds after interruption. The temporary iPad runner
+was removed and the reviewed #11 app was left foreground. The #12 binary and
+results were not used as #11 gesture evidence.
+
+**Physical iPhone acceptance is still open.** The iPhone is unavailable, as
+confirmed by the owner during coordinated device testing. Its earlier XCTest
+attempt stopped before test execution at the system passcode prompt for enabling
+UI automation. The iPad result does not substitute for that missing iPhone run;
+the PR remains draft and the issue remains open until the iPhone check passes.
 
 To complete acceptance after unlocking the devices and authorizing native UI
 automation, launch the installed release in portrait and inspect the rendered
@@ -224,7 +236,7 @@ backdrop. Drag in unused space, continue vertical drags through the poles, pinch
 in both directions, then orbit again. Add and remove a pinch finger and cancel a
 gesture using a system interruption; the next gesture must resume without a
 jump. Drag from a menu control into the backdrop and confirm that the camera
-stays captured by the UI, then verify a fresh backdrop gesture. Background and
+stays still while the UI owns the gesture, then verify a fresh backdrop gesture. Background and
 reactivate the app, and verify fresh orbit and menu taps. Repeat on both devices
 and record settled before/after screenshots and the source/binary identity.
 Temporary native test results and signing material stay local under ignored
