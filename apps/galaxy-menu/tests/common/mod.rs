@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bevy::{
     asset::AssetPlugin,
-    camera::{CameraPlugin, RenderTargetInfo},
+    camera::{CameraPlugin, RenderTarget, RenderTargetInfo},
     image::ImagePlugin,
     input::{
         ButtonState, InputPlugin,
@@ -82,16 +82,27 @@ pub fn set_viewport(app: &mut App, size: UVec2, scale: f32) {
         .single_mut(world)
         .unwrap()
         .resolution = WindowResolution::new(size.x, size.y).with_scale_factor_override(scale);
-    let (mut camera, mut projection) = world
-        .query_filtered::<(&mut Camera, &mut Projection), With<Camera3d>>()
-        .single_mut(world)
-        .unwrap();
-    projection.update(size.x as f32, size.y as f32);
-    camera.computed.clip_from_view = projection.get_clip_from_view();
-    camera.computed.target_info = Some(RenderTargetInfo {
-        physical_size: size,
-        scale_factor: scale,
-    });
+    let mut targets = world.query::<(Entity, &RenderTarget)>();
+    let targets = targets
+        .iter(world)
+        .map(|(entity, target)| {
+            let (physical_size, scale_factor) = target
+                .as_image()
+                .and_then(|handle| world.resource::<Assets<Image>>().get(handle))
+                .map_or((size, scale), |image| (image.size(), 1.0));
+            (entity, physical_size, scale_factor)
+        })
+        .collect::<Vec<_>>();
+    let mut cameras = world.query::<(&mut Camera, &mut Projection)>();
+    for (entity, physical_size, scale_factor) in targets {
+        let (mut camera, mut projection) = cameras.get_mut(world, entity).unwrap();
+        projection.update(physical_size.x as f32, physical_size.y as f32);
+        camera.computed.clip_from_view = projection.get_clip_from_view();
+        camera.computed.target_info = Some(RenderTargetInfo {
+            physical_size,
+            scale_factor,
+        });
+    }
 }
 
 pub fn mouse_button(app: &mut App, state: ButtonState) {

@@ -5,6 +5,7 @@
 
 @interface GalaxySceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property(nonatomic, strong) UIWindow *window;
+@property(nonatomic, strong) UIUpdateLink *updateLink;
 @end
 
 static __weak UIWindowScene *galaxyScene;
@@ -30,6 +31,30 @@ static void attachWindow(UIWindow *window, UIWindowScene *scene) {
     }
     galaxyScene = (UIWindowScene *)scene;
     attachWindow(galaxyWindow, galaxyScene);
+    // Request display-aligned 60 Hz UI updates for winit's existing loop.
+    // The link receives phase notifications; Bevy keeps rendering ownership.
+    self.updateLink.enabled = NO;
+    self.updateLink = [UIUpdateLink updateLinkForWindowScene:galaxyScene];
+    self.updateLink.enabled = NO;
+    // iOS 27 rejects continuous links without a registered phase action.
+    // Observe the notification only; winit still schedules and renders frames.
+    [self.updateLink addActionWithHandler:^(UIUpdateLink *link, UIUpdateInfo *info) {
+        (void)link;
+        (void)info;
+    }];
+    self.updateLink.requiresContinuousUpdates = YES;
+    self.updateLink.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
+    self.updateLink.enabled = scene.activationState == UISceneActivationStateForegroundActive;
+}
+- (void)sceneDidBecomeActive:(UIScene *)scene {
+    if (scene == galaxyScene) {
+        self.updateLink.enabled = YES;
+    }
+}
+- (void)sceneWillResignActive:(UIScene *)scene {
+    if (scene == galaxyScene) {
+        self.updateLink.enabled = NO;
+    }
 }
 // Scene geometry, rather than the device screen, changes for both rotation
 // and iPad multitasking. Resizing winit's existing window lets its view emit
@@ -44,6 +69,10 @@ static void attachWindow(UIWindow *window, UIWindowScene *scene) {
 }
 - (void)sceneDidDisconnect:(UIScene *)scene {
     if (galaxyScene == scene) {
+        // UIUpdateLink has no invalidate method. Disabling removes its effect;
+        // releasing the scene-owned link ends this scene's timing request.
+        self.updateLink.enabled = NO;
+        self.updateLink = nil;
         self.window = nil;
         galaxyScene = nil;
     }

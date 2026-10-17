@@ -346,3 +346,12 @@ regression failed with a field rename alone and passed after sharing the clamp.
 Formatting, strict all-target Clippy and the `aarch64-apple-ios` release build
 also pass. Physical-device acceptance was not rerun for this integration change;
 the hardware evidence above applies to the recorded independent builds.
+
+
+## Final performance and acceptance — 2026-10-17
+
+Ticket #13 now has a [measured before/after record](performance-acceptance.md),
+complete startup/warmup/steady distributions, and final native controls, gesture,
+rotation and iPad multitasking checks. The iPad averages approximately 60 fps;
+the iPhone remains at 51–56 fps in the measured scenarios. Neither is certified
+as locked 60 fps presentation. The remaining shortfall is explicit in the record.
