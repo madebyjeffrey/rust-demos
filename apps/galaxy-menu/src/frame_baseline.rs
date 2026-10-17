@@ -146,6 +146,10 @@ pub(super) fn register(app: &mut App) {
     .add_systems(Last, capture_frame);
 }
 
+#[expect(
+    clippy::type_complexity,
+    reason = "Capture the scene camera and optional render settings together"
+)]
 fn capture_frame(
     mut baseline: ResMut<FrameBaseline>,
     window: Query<&Window, With<PrimaryWindow>>,
