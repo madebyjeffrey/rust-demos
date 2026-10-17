@@ -255,3 +255,94 @@ Background and reactivate the app, and verify fresh orbit and menu taps. Repeat 
 and record settled before/after screenshots and the source/binary identity.
 Temporary native test results and signing material stay local under ignored
 `target/ios/` or the temporary acceptance directory.
+## Responsive-layout acceptance — 2026-10-16
+
+[Ticket #12](https://github.com/madebyjeffrey/rust-demos/issues/12) is implemented
+at source commit `2d1c76c`, integrated in `f45a831`. The menu responds to logical
+window size and UIKit safe-area insets; the camera preserves orbit and bounded
+zoom relative to the full-window galaxy fit. Controls overlay the backdrop.
+Desktop windows enforce a 240×200 logical-point minimum. Compact presentation
+retains readable labels and at least 44-point control targets.
+
+All 42 workspace tests, formatting, strict all-target Clippy, Objective-C syntax,
+desktop release and signed `aarch64-apple-ios` release builds passed. Independent
+standards and spec reviews have no remaining code findings. The review reproduced
+an off-screen Quit at 320×200 before the final fix; that case and adjacent short,
+narrow and safe-area configurations now pass at 1×/2×/3× display scales.
+App-level input regressions retain desktop controls, ownership and full-window
+framing. Repeated resize sequences preserve orbit, relative zoom and the original
+camera position on returning to the initial dimensions.
+
+An out-of-repository rendering harness assembled `GalaxyMenuPlugin` with the
+production plugin configuration and drove actual desktop window resizes through
+1280×720, 320×200, 240×200, 600×240, 402×874 and back to 1280×720. GPU screenshots
+at each settled size show all four readable controls and the full-window galaxy
+backdrop. The desktop release also rendered during native window zoom.
+
+The development-signed executable used on both baseline devices has SHA-256:
+
+```text
+1326d067e10d71062c8bb4ac7e851c5c57f8bb471eab72976a0fc8c191b6203a
+```
+
+On the physical iPad mini (6th generation), iPadOS 27.0.1, sequential XCTest
+checks verified portrait 744×1133, both landscape directions 1133×744 and a return
+to portrait, with actual native-window frame assertions and whole-screen captures.
+With the owner's approval, Windowed Apps was enabled temporarily. The same app
+grew from 375×486 to 644×929 and shrank back to 375×486 logical points over Settings.
+Screenshots confirm all three readable controls, no Quit, no clipping and a galaxy
+backdrop covering each native window. The test explicitly verified restoration of
+the original Full Screen Apps setting. Initial investigation also observed the
+full-screen 744×1133 to 375×551 window transition. These are layout checks, not
+touch-navigation or performance acceptance.
+
+To repeat native acceptance, build/install with the workflow above; rotate through
+portrait and both landscape directions without restarting. In Windowed Apps,
+resize with the bottom-right handle, checking both larger and smaller windows,
+then restore the prior multitasking setting. Check control bounds, readable labels,
+system-safe placement and the full-window backdrop at every transition. The
+temporary XCTest runner, screenshots, raw results and signing material remain
+local and are excluded from source control.
+
+The iPhone was unavailable on 2026-10-16. Its remaining physical acceptance
+was completed on 2026-10-17, as recorded below.
+
+
+## iPhone responsive-layout acceptance — 2026-10-17
+
+The remaining #12 hardware checks passed on the physical iPhone 17 Pro,
+iOS 27.0.1, using the same verified development-signed executable and SHA-256
+recorded above. Phone access was coordinated exclusively with the independent
+#11 gesture-validation chat to avoid overwriting either build during its run.
+
+The native orientation XCTest passed in 37.683 seconds with zero failures. Actual
+window-frame assertions verified 402×874 logical points in portrait, 874×402 in
+both landscape directions, and a return to 402×874 portrait, at display scale 3.
+All four whole-screen screenshots were inspected: New Game, Load Game and
+Settings remain readable and reachable inside the current safe areas, Quit is
+absent, and the galaxy backdrop fills the window. The captures have no system
+notification overlays. App-level regressions provide the precise control-bound,
+display-scaling and repeated camera-continuity checks described above.
+
+A separate cleanup XCTest verified restoration of the phone's original face-up
+orientation (raw value 5), and the temporary layout test runner was removed.
+Raw results and screenshots remain local, with device identifiers and signing
+material excluded from source control. Both baseline devices now have completed
+physical layout acceptance for #12; PR #19 can proceed to review. This record
+does not claim #11 gesture acceptance or #13 performance acceptance.
+
+## Touch and responsive-layout integration — 2026-10-17
+
+The combined #18/#19 code uses relative zoom for both pinch and mouse-wheel
+input, applying their shared bounds after all input for the frame. This resolves
+the removed `GalaxyCamera.distance` reference and keeps pinch zoom bounded even
+when no wheel event arrives. Both independent physical acceptance records above
+are retained.
+
+All 54 combined workspace tests pass, including a new input-driven regression
+that compares pinch and wheel zoom bounds through repeated portrait, landscape,
+multitasking and original-window transitions at 1×/2×/3× display scales. That
+regression failed with a field rename alone and passed after sharing the clamp.
+Formatting, strict all-target Clippy and the `aarch64-apple-ios` release build
+also pass. Physical-device acceptance was not rerun for this integration change;
+the hardware evidence above applies to the recorded independent builds.

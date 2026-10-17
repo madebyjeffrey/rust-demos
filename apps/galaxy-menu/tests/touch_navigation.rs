@@ -81,6 +81,67 @@ fn pinching_changes_zoom_without_orbit_and_stops_at_the_existing_bounds() {
 }
 
 #[test]
+fn pinch_and_wheel_share_zoom_bounds_through_repeated_window_changes() {
+    use bevy::input::mouse::MouseScrollUnit;
+    use common::{mouse_scroll, set_viewport};
+
+    fn assert_same_view(touched: &mut App, scrolled: &mut App) {
+        let touched = camera(touched);
+        let scrolled = camera(scrolled);
+        assert!(touched.translation.distance(scrolled.translation) < 0.001);
+        assert!(touched.rotation.angle_between(scrolled.rotation) < 0.001);
+    }
+
+    for scale in [1.0, 2.0, 3.0] {
+        let mut touched = launch_app(UVec2::new(1280, 720) * scale as u32, scale);
+        let mut scrolled = launch_app(UVec2::new(1280, 720) * scale as u32, scale);
+        touch(
+            &mut touched,
+            1,
+            TouchPhase::Started,
+            Vec2::new(600.0, 300.0),
+        );
+        touch(
+            &mut touched,
+            2,
+            TouchPhase::Started,
+            Vec2::new(800.0, 300.0),
+        );
+        touch(&mut touched, 2, TouchPhase::Moved, Vec2::new(601.0, 300.0));
+        mouse_scroll(&mut scrolled, MouseScrollUnit::Line, -1000.0);
+        touched.update();
+        scrolled.update();
+        assert_same_view(&mut touched, &mut scrolled);
+
+        for _ in 0..2 {
+            for logical in [
+                UVec2::new(402, 874),
+                UVec2::new(874, 402),
+                UVec2::new(320, 744),
+                UVec2::new(1280, 720),
+            ] {
+                for app in [&mut touched, &mut scrolled] {
+                    set_viewport(app, logical * scale as u32, scale);
+                    app.update();
+                    app.update();
+                }
+                assert_same_view(&mut touched, &mut scrolled);
+            }
+        }
+
+        touch(&mut touched, 2, TouchPhase::Moved, Vec2::new(600.5, 300.0));
+        touched.update();
+        assert_same_view(&mut touched, &mut scrolled);
+
+        touch(&mut touched, 2, TouchPhase::Moved, Vec2::new(1000.0, 300.0));
+        mouse_scroll(&mut scrolled, MouseScrollUnit::Line, 1000.0);
+        touched.update();
+        scrolled.update();
+        assert_same_view(&mut touched, &mut scrolled);
+    }
+}
+
+#[test]
 fn touch_navigation_pauses_idle_galaxy_motion_until_the_gesture_finishes() {
     use bevy::time::TimeUpdateStrategy;
     use galaxy_menu::GalaxyRoot;
