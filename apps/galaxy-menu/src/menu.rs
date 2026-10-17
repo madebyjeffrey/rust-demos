@@ -96,6 +96,8 @@ impl Plugin for MenuPlugin {
                     .before(InputFocusSystems::Dispatch),
             )
             .add_systems(Update, (layout_menu, style_buttons));
+        #[cfg(not(target_os = "ios"))]
+        app.add_systems(Startup, configure_window_minimum);
     }
 }
 
@@ -424,6 +426,30 @@ fn setup_menu(mut commands: Commands) {
     ));
 }
 
+// Four 44-point controls and three 4-point gaps fit in a 240×200 window
+// with breathing room. Smaller desktop windows cannot reliably fit readable
+// labels and all actions together; native window limits are managed by UIKit.
+#[cfg(not(target_os = "ios"))]
+fn configure_window_minimum(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+    for mut window in &mut windows {
+        window.resize_constraints.min_width = window.resize_constraints.min_width.max(240.0);
+        window.resize_constraints.min_height = window.resize_constraints.min_height.max(200.0);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MenuPresentation {
+    button_height: f32,
+    primary_font_size: f32,
+    button_padding: f32,
+    minimum_button_width: f32,
+    padding: f32,
+    top: f32,
+    action_gap: f32,
+    heading: bool,
+    decoration: bool,
+}
+
 #[expect(
     clippy::type_complexity,
     reason = "Layout updates each presentation role and its optional text together"
@@ -455,46 +481,119 @@ fn layout_menu(
             safe_area.left + safe_area.right,
             safe_area.top + safe_area.bottom,
         );
-    let compact = size.y < 520.0;
-    let columns = if compact && size.x >= 480.0 { 2 } else { 1 };
-    let dense = compact && columns == 1 && size.y < 300.0;
-    let padding = if compact { 12.0 } else { 24.0 };
-    let width = (size.x - padding * 2.0).min(if columns == 2 { 620.0 } else { 320.0 });
+    let button_count = nodes.iter().filter(|node| node.5.is_some()).count().max(1) as u16;
+    let regular = MenuPresentation {
+        button_height: 64.0,
+        primary_font_size: 32.0,
+        button_padding: 14.0,
+        minimum_button_width: 220.0,
+        padding: 24.0,
+        top: 40.0,
+        action_gap: 8.0,
+        heading: true,
+        decoration: true,
+    };
+    let compact = MenuPresentation {
+        button_height: 52.0,
+        primary_font_size: 24.0,
+        minimum_button_width: 180.0,
+        padding: 12.0,
+        top: 12.0,
+        decoration: false,
+        ..regular
+    };
+    let dense = MenuPresentation {
+        button_height: 48.0,
+        primary_font_size: 19.0,
+        button_padding: 8.0,
+        minimum_button_width: 128.0,
+        heading: false,
+        ..compact
+    };
+    let tight = MenuPresentation {
+        button_height: 44.0,
+        padding: 4.0,
+        top: 4.0,
+        action_gap: 4.0,
+        ..dense
+    };
+    // Try each presentation from most spacious to most compact. Column count
+    // follows the space required by the actual number of action rows and readable
+    // cells, rather than waiting for a wide-window breakpoint to permit reflow.
+    let fitted =
+        [regular, compact, dense, tight]
+            .into_iter()
+            .find_map(|presentation| {
+                let first_column =
+                    if presentation.heading && !presentation.decoration && size.x >= 480.0 {
+                        2
+                    } else {
+                        1
+                    };
+                let last_column = if presentation.decoration {
+                    1
+                } else {
+                    button_count
+                };
+                (first_column..=last_column).find_map(|columns| {
+                    let width = (size.x - presentation.padding * 2.0).min(if columns == 1 {
+                        320.0
+                    } else {
+                        620.0
+                    });
+                    let cell_width =
+                        (width - (columns - 1) as f32 * presentation.action_gap) / columns as f32;
+                    let rows = button_count.div_ceil(columns);
+                    let header_height = if presentation.decoration {
+                        99.0
+                    } else if presentation.heading {
+                        32.0
+                    } else {
+                        0.0
+                    };
+                    let height = presentation.top
+                        + header_height
+                        + rows as f32 * presentation.button_height
+                        + (rows - 1) as f32 * presentation.action_gap
+                        + presentation.padding;
+                    (cell_width >= presentation.minimum_button_width && height <= size.y)
+                        .then_some((presentation, columns, width))
+                })
+            });
+    // A minimized window can temporarily have no usable area. Keep the last
+    // compact geometry finite until its normal, constrained window returns.
+    let (presentation, columns, width) =
+        fitted.unwrap_or((tight, 1, (size.x - tight.padding * 2.0).clamp(0.0, 320.0)));
     for (mut node, shell, decoration, actions, heading, emphasis, font) in &mut nodes {
         if shell {
-            node.left = px(safe_area.left + padding);
-            node.top = px(safe_area.top + if compact { 12.0 } else { 40.0 });
-            node.width = px(width.max(0.0));
-            node.row_gap = px(if compact { 10.0 } else { 18.0 });
+            node.left = px(safe_area.left + presentation.padding);
+            node.top = px(safe_area.top + presentation.top);
+            node.width = px(width);
+            node.row_gap = px(if presentation.decoration { 18.0 } else { 10.0 });
         } else if decoration {
-            node.display = if compact {
-                Display::None
-            } else {
+            node.display = if presentation.decoration {
                 Display::Flex
+            } else {
+                Display::None
             };
         } else if heading {
-            node.display = if dense { Display::None } else { Display::Flex };
+            node.display = if presentation.heading {
+                Display::Flex
+            } else {
+                Display::None
+            };
         } else if actions {
             node.grid_template_columns = RepeatedGridTrack::flex(columns, 1.0);
-            node.row_gap = px(8);
-            node.column_gap = px(12);
+            node.row_gap = px(presentation.action_gap);
+            node.column_gap = px(presentation.action_gap);
         } else if let Some(emphasis) = emphasis {
-            node.height = px(if dense {
-                48.0
-            } else if compact {
-                52.0
-            } else {
-                64.0
-            });
+            node.height = px(presentation.button_height);
+            node.min_height = px(presentation.button_height);
+            node.padding = UiRect::axes(px(presentation.button_padding), px(8));
             if let Some(mut font) = font {
-                font.font_size = FontSize::Px(if dense {
-                    19.0
-                } else {
-                    match (compact, emphasis) {
-                        (true, MenuEmphasis::Primary) => 24.0,
-                        (false, MenuEmphasis::Primary) => 32.0,
-                        (_, MenuEmphasis::Secondary) => 19.0,
-                    }
+                font.font_size = FontSize::Px(match emphasis {
+                    MenuEmphasis::Primary => presentation.primary_font_size,
+                    MenuEmphasis::Secondary => 19.0,
                 });
             }
         }

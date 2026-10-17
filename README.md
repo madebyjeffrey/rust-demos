@@ -25,7 +25,9 @@ Menu overlays share the full window without reserving a separate scene viewport.
 Controls reflow from the available logical window size and native safe areas,
 including rotation and iPad multitasking. Compact windows use fewer decorative
 labels or two columns while retaining readable buttons. Resizing preserves orbit
-and zoom relative to the galaxy's full-window fit.
+and zoom relative to the galaxy's full-window fit. Desktop resizing has a minimum
+of 240×200 logical points so every action remains operable with readable labels
+and at least 44-point targets.
 
 Build and directly install the same application on registered iPhone and iPad devices
 with the [native iOS workflow](docs/ios.md).
