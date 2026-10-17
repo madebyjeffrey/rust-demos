@@ -21,6 +21,8 @@ use bevy::{
     window::{PrimaryWindow, WindowEvent, WindowFocused},
 };
 
+use crate::window_layout::WindowSafeArea;
+
 const BACKGROUND: Color = Color::srgb(0.025, 0.035, 0.09);
 const ACCENT: Color = Color::srgb(0.96, 0.66, 0.39);
 const PRIMARY_TEXT: Color = Color::srgb(0.98, 0.83, 0.6);
@@ -93,7 +95,7 @@ impl Plugin for MenuPlugin {
                     .after(PickingSystems::Last)
                     .before(InputFocusSystems::Dispatch),
             )
-            .add_systems(Update, style_buttons);
+            .add_systems(Update, (layout_menu, style_buttons));
     }
 }
 
@@ -345,23 +347,32 @@ fn clear_menu_focus(world: &mut World) {
     world.resource_mut::<InputFocusVisible>().0 = false;
 }
 
+#[derive(Component)]
+struct MenuShell;
+
+#[derive(Component)]
+struct MenuDecoration;
+
+#[derive(Component)]
+struct MenuActions;
+
+#[derive(Component)]
+struct MenuHeading;
+
 fn setup_menu(mut commands: Commands) {
     commands.insert_resource(ClearColor(BACKGROUND));
     commands.spawn((
+        MenuShell,
         TabGroup::new(0),
         Pickable::IGNORE,
         Node {
             position_type: PositionType::Absolute,
-            left: px(24),
-            right: px(24),
-            top: px(40),
-            max_width: px(320),
             flex_direction: FlexDirection::Column,
-            row_gap: px(22),
             ..default()
         },
         children![
             (
+                MenuDecoration,
                 Node {
                     width: px(62),
                     height: px(7),
@@ -371,6 +382,7 @@ fn setup_menu(mut commands: Commands) {
                 BackgroundColor(ACCENT),
             ),
             (
+                MenuHeading,
                 Text::new("GALAXY MENU"),
                 TextFont {
                     font_size: FontSize::Px(18.0),
@@ -379,55 +391,114 @@ fn setup_menu(mut commands: Commands) {
                 TextColor(ACCENT),
             ),
             (
+                MenuDecoration,
                 Text::new("CHOOSE YOUR NEXT STEP"),
                 TextFont {
                     font_size: FontSize::Px(13.0),
                     ..default()
                 },
                 TextColor(QUIET_TEXT),
-                Node {
-                    margin: UiRect::top(px(-13)),
-                    ..default()
-                },
             ),
             (
+                MenuActions,
                 Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(10),
-                    margin: UiRect::top(px(14)),
+                    display: Display::Grid,
                     ..default()
                 },
-                children![
-                    action_button("New Game", MenuAction::NewGame, MenuEmphasis::Primary),
-                    action_button("Load Game", MenuAction::LoadGame, MenuEmphasis::Primary),
-                ],
-            ),
-            (Node {
-                height: px(10),
-                ..default()
-            },),
-            (
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(8),
-                    ..default()
-                },
-                Children::spawn(SpawnIter(
-                    [
-                        ("Settings", MenuAction::Settings),
-                        ("Quit", MenuAction::Quit)
-                    ]
-                    .into_iter()
-                    .filter(|(_, action)| !cfg!(target_os = "ios") || *action != MenuAction::Quit)
-                    .map(|(label, action)| action_button(
-                        label,
-                        action,
-                        MenuEmphasis::Secondary
-                    )),
-                )),
+                Children::spawn(
+                    SpawnIter(
+                        [
+                            ("New Game", MenuAction::NewGame, MenuEmphasis::Primary),
+                            ("Load Game", MenuAction::LoadGame, MenuEmphasis::Primary),
+                            ("Settings", MenuAction::Settings, MenuEmphasis::Secondary),
+                            ("Quit", MenuAction::Quit, MenuEmphasis::Secondary),
+                        ]
+                        .into_iter()
+                        .filter(|(_, action, _)| !cfg!(target_os = "ios")
+                            || *action != MenuAction::Quit)
+                        .map(|(label, action, emphasis)| action_button(label, action, emphasis)),
+                    )
+                ),
             ),
         ],
     ));
+}
+
+#[expect(
+    clippy::type_complexity,
+    reason = "Layout updates each presentation role and its optional text together"
+)]
+fn layout_menu(
+    windows: Query<(&Window, Option<&WindowSafeArea>), With<PrimaryWindow>>,
+    mut last_layout: Local<Option<(Vec2, WindowSafeArea)>>,
+    mut nodes: Query<(
+        &mut Node,
+        Has<MenuShell>,
+        Has<MenuDecoration>,
+        Has<MenuActions>,
+        Has<MenuHeading>,
+        Option<&MenuEmphasis>,
+        Option<&mut TextFont>,
+    )>,
+) {
+    let Ok((window, safe_area)) = windows.single() else {
+        return;
+    };
+    let safe_area = safe_area.copied().unwrap_or_default();
+    let layout = (window.size(), safe_area);
+    if *last_layout == Some(layout) {
+        return;
+    }
+    *last_layout = Some(layout);
+    let size = window.size()
+        - Vec2::new(
+            safe_area.left + safe_area.right,
+            safe_area.top + safe_area.bottom,
+        );
+    let compact = size.y < 520.0;
+    let columns = if compact && size.x >= 480.0 { 2 } else { 1 };
+    let dense = compact && columns == 1 && size.y < 300.0;
+    let padding = if compact { 12.0 } else { 24.0 };
+    let width = (size.x - padding * 2.0).min(if columns == 2 { 620.0 } else { 320.0 });
+    for (mut node, shell, decoration, actions, heading, emphasis, font) in &mut nodes {
+        if shell {
+            node.left = px(safe_area.left + padding);
+            node.top = px(safe_area.top + if compact { 12.0 } else { 40.0 });
+            node.width = px(width.max(0.0));
+            node.row_gap = px(if compact { 10.0 } else { 18.0 });
+        } else if decoration {
+            node.display = if compact {
+                Display::None
+            } else {
+                Display::Flex
+            };
+        } else if heading {
+            node.display = if dense { Display::None } else { Display::Flex };
+        } else if actions {
+            node.grid_template_columns = RepeatedGridTrack::flex(columns, 1.0);
+            node.row_gap = px(8);
+            node.column_gap = px(12);
+        } else if let Some(emphasis) = emphasis {
+            node.height = px(if dense {
+                48.0
+            } else if compact {
+                52.0
+            } else {
+                64.0
+            });
+            if let Some(mut font) = font {
+                font.font_size = FontSize::Px(if dense {
+                    19.0
+                } else {
+                    match (compact, emphasis) {
+                        (true, MenuEmphasis::Primary) => 24.0,
+                        (false, MenuEmphasis::Primary) => 32.0,
+                        (_, MenuEmphasis::Secondary) => 19.0,
+                    }
+                });
+            }
+        }
+    }
 }
 
 fn activate_menu_action(

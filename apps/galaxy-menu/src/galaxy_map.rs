@@ -27,7 +27,9 @@ const GALAXY_CENTER: Vec3 = Vec3::new(7.4, 0.0, 0.0);
 const CAMERA_TARGET: Vec3 = Vec3::new(3.8, 0.0, 0.0);
 const ORBIT_SENSITIVITY: f32 = 0.005;
 const MIN_CAMERA_DISTANCE: f32 = 18.0;
-const MAX_CAMERA_DISTANCE: f32 = 72.0;
+// Bound magnification relative to the full-window fit so a narrow viewport
+// does not consume the entire zoom range.
+const MAX_RELATIVE_ZOOM: f32 = 4.0;
 const ZOOM_SENSITIVITY: f32 = 0.12;
 const IDLE_ROTATION_RADIANS_PER_SECOND: f32 = 0.035;
 const FRAMING_VIEWPORT_FRACTION: f32 = 0.9;
@@ -54,7 +56,7 @@ pub struct BackgroundStarfield;
 struct GalaxyCamera {
     target: Vec3,
     orientation: Quat,
-    distance: f32,
+    relative_zoom: f32,
 }
 
 type GalaxyCameraFilter = (Without<GalaxyRoot>, Without<GalaxyCompanion>);
@@ -104,8 +106,6 @@ fn setup_galaxy_map(
         CAMERA_TARGET.y + 18.0,
         CAMERA_TARGET.z + 31.0,
     );
-    let camera_offset = camera_position - CAMERA_TARGET;
-    let camera_distance = camera_offset.length();
     let camera_transform =
         Transform::from_translation(camera_position).looking_at(CAMERA_TARGET, Vec3::Y);
     commands.spawn((
@@ -117,7 +117,7 @@ fn setup_galaxy_map(
         GalaxyCamera {
             target: CAMERA_TARGET,
             orientation: camera_transform.rotation,
-            distance: camera_distance,
+            relative_zoom: 1.12,
         },
     ));
 
@@ -222,7 +222,8 @@ fn orbit_galaxy_camera(
         MouseScrollUnit::Pixel => mouse_scroll.delta.y / 100.0,
     };
     if scroll != 0.0 && !menu_input.as_ref().is_some_and(|input| input.blocks_scroll) {
-        camera.distance *= (-scroll * ZOOM_SENSITIVITY).exp();
+        camera.relative_zoom = (camera.relative_zoom * (-scroll * ZOOM_SENSITIVITY).exp())
+            .clamp(1.0, MAX_RELATIVE_ZOOM);
     }
 
     let direction = camera.orientation * Vec3::Z;
@@ -236,15 +237,10 @@ fn orbit_galaxy_camera(
             companions.iter(),
         )
     });
-    if camera.is_added() {
-        // Start just outside the fitted scene, leaving room for the first zoom gesture.
-        camera.distance = camera.distance.max(minimum_distance * 1.12);
-    }
-    // Recheck every frame: orbit, idle rotation, and viewport resizing can all change the fit.
-    camera.distance = camera
-        .distance
-        .clamp(minimum_distance, MAX_CAMERA_DISTANCE.max(minimum_distance));
-    transform.translation = camera.target + direction * camera.distance;
+    // Orbit, idle motion, and viewport resizing can all change the fitted
+    // distance. Keep the user's bounded zoom relative to that fit, so returning
+    // from portrait or a multitasking window never loses their chosen view.
+    transform.translation = camera.target + direction * minimum_distance * camera.relative_zoom;
     transform.rotation = orientation.rotation;
 }
 
