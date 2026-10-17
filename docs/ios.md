@@ -202,7 +202,7 @@ production plugin configuration and drove actual desktop window resizes through
 at each settled size show all four readable controls and the full-window galaxy
 backdrop. The desktop release also rendered during native window zoom.
 
-The final development-signed iPad executable has SHA-256:
+The development-signed executable used on both baseline devices has SHA-256:
 
 ```text
 1326d067e10d71062c8bb4ac7e851c5c57f8bb471eab72976a0fc8c191b6203a
@@ -227,7 +227,29 @@ system-safe placement and the full-window backdrop at every transition. The
 temporary XCTest runner, screenshots, raw results and signing material remain
 local and are excluded from source control.
 
-**Pending:** the iPhone 17 Pro was unavailable for this run. Physical iPhone safe
-areas and rotation remain unverified for #12, so its PR remains draft and the
-physical-device acceptance checkbox remains open. Headless phone-size/scaling
-coverage and a successful native build do not substitute for that hardware check.
+The iPhone was unavailable on 2026-10-16. Its remaining physical acceptance
+was completed on 2026-10-17, as recorded below.
+
+
+## iPhone responsive-layout acceptance — 2026-10-17
+
+The remaining #12 hardware checks passed on the physical iPhone 17 Pro,
+iOS 27.0.1, using the same verified development-signed executable and SHA-256
+recorded above. Phone access was coordinated exclusively with the independent
+#11 gesture-validation chat to avoid overwriting either build during its run.
+
+The native orientation XCTest passed in 37.683 seconds with zero failures. Actual
+window-frame assertions verified 402×874 logical points in portrait, 874×402 in
+both landscape directions, and a return to 402×874 portrait, at display scale 3.
+All four whole-screen screenshots were inspected: New Game, Load Game and
+Settings remain readable and reachable inside the current safe areas, Quit is
+absent, and the galaxy backdrop fills the window. The captures have no system
+notification overlays. App-level regressions provide the precise control-bound,
+display-scaling and repeated camera-continuity checks described above.
+
+A separate cleanup XCTest verified restoration of the phone's original face-up
+orientation (raw value 5), and the temporary layout test runner was removed.
+Raw results and screenshots remain local, with device identifiers and signing
+material excluded from source control. Both baseline devices now have completed
+physical layout acceptance for #12; PR #19 can proceed to review. This record
+does not claim #11 gesture acceptance or #13 performance acceptance.
