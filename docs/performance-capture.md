@@ -61,6 +61,14 @@ then retrieve the application's Documents file. A file-write failure emits
 stays active after capture; the console command stops it after completion.
 Desktop captures request application exit after reporting.
 
+The shared `GalaxyRenderSettings` resource controls scene resolution independently
+of the native window. Its platform default is `scene_scale: 0.6` on iOS and
+`1.0` on desktop. At reduced scale, the galaxy camera renders to an image and a
+native camera composites that image with native UI. Scene settings such as bloom,
+MSAA, stars, gas, dust, and companions are retained. Resizing updates the image
+only when its pixel dimensions change. Insert the resource before the shared app
+plugin, or update it when comparing rendering policies in an acceptance harness.
+
 Run the host capture command regressions without a device:
 
 ```sh
