@@ -18,7 +18,7 @@ use bevy::{
     prelude::*,
     ui::UiGlobalTransform,
     ui_widgets::{Activate, Button},
-    window::{PrimaryWindow, WindowEvent, WindowFocused},
+    window::{AppLifecycle, PrimaryWindow, WindowEvent, WindowFocused},
 };
 
 const BACKGROUND: Color = Color::srgb(0.025, 0.035, 0.09);
@@ -58,6 +58,11 @@ enum ScrollOwner {
     Backdrop,
 }
 
+pub(crate) enum BackdropTouchInput {
+    Touch(TouchInput),
+    Interrupted,
+}
+
 /// Camera input consults ownership captured at the beginning of a UI interaction.
 #[derive(Resource, Default)]
 pub(crate) struct MenuInputOwnership {
@@ -66,14 +71,35 @@ pub(crate) struct MenuInputOwnership {
     mouse_pressed: bool,
     mouse_position: Option<Vec2>,
     window_focused: Option<bool>,
+    suspended: bool,
     scroll_owner: Option<ScrollOwner>,
     touch_captures: HashMap<(Entity, u64), Entity>,
     hovered: Option<Entity>,
     /// Includes released UI touches for the current frame so camera gesture readers
     /// can reject their final input as well as their active movement.
     pub(crate) ui_touches: HashSet<(Entity, u64)>,
+    /// Camera-owned touches in native event order, including interruption boundaries.
+    pub(crate) backdrop_touches: Vec<BackdropTouchInput>,
     pub(crate) blocks_mouse: bool,
     pub(crate) blocks_scroll: bool,
+}
+
+impl MenuInputOwnership {
+    fn interrupt(&mut self, commands: &mut Commands) {
+        self.backdrop_touches.push(BackdropTouchInput::Interrupted);
+        self.mouse_capture = None;
+        self.mouse_cancelled = self.mouse_pressed;
+        self.touch_captures.clear();
+        // Suppress the rest of an interrupted scroll until its end.
+        if self.scroll_owner.is_some() {
+            self.scroll_owner = Some(ScrollOwner::Menu);
+        }
+        commands.queue(clear_menu_focus);
+    }
+
+    pub(crate) fn has_active_touches(&self) -> bool {
+        !self.touch_captures.is_empty()
+    }
 }
 
 impl Plugin for MenuPlugin {
@@ -106,6 +132,7 @@ fn capture_menu_input(
     mut ownership: ResMut<MenuInputOwnership>,
     mut touches: MessageReader<TouchInput>,
     mut focus_events: MessageReader<WindowFocused>,
+    mut lifecycle_events: MessageReader<AppLifecycle>,
     mut keyboard_inputs: MessageReader<KeyboardInput>,
     mut scroll_events: MessageReader<MouseWheel>,
     mut window_events: MessageReader<WindowEvent>,
@@ -124,6 +151,13 @@ fn capture_menu_input(
     // Native events preserve ordering between pointer input and focus changes.
     // Direct Bevy messages remain supported when no native events of that kind exist.
     let mut events = window_events.read().cloned().collect::<Vec<_>>();
+    let direct_lifecycle = lifecycle_events.read().copied().collect::<Vec<_>>();
+    if !events
+        .iter()
+        .any(|event| matches!(event, WindowEvent::AppLifecycle(_)))
+    {
+        events.extend(direct_lifecycle.into_iter().map(WindowEvent::AppLifecycle));
+    }
     let direct_focus = focus_events.read().cloned().collect::<Vec<_>>();
     if !events
         .iter()
@@ -163,35 +197,42 @@ fn capture_menu_input(
             })
     };
     ownership.ui_touches = ownership.touch_captures.keys().copied().collect();
+    ownership.backdrop_touches.clear();
     let mut captured_this_frame = ownership.mouse_capture.is_some();
     let mut scroll_over_control = false;
     let mut saw_scroll_input = false;
     let mut saw_mouse_input = false;
     for event in &events {
         match event {
+            WindowEvent::AppLifecycle(lifecycle) => {
+                ownership.suspended = matches!(
+                    lifecycle,
+                    AppLifecycle::Idle | AppLifecycle::WillSuspend | AppLifecycle::Suspended
+                );
+                if ownership.suspended {
+                    ownership.interrupt(&mut commands);
+                }
+            }
             WindowEvent::WindowFocused(event) if windows.contains(event.window) => {
                 focused = event.focused;
                 if !focused {
-                    ownership.mouse_capture = None;
-                    ownership.mouse_cancelled = ownership.mouse_pressed;
-                    ownership.touch_captures.clear();
-                    // Suppress the rest of an interrupted scroll until its end.
-                    if ownership.scroll_owner.is_some() {
-                        ownership.scroll_owner = Some(ScrollOwner::Menu);
-                    }
-                    commands.queue(clear_menu_focus);
+                    ownership.interrupt(&mut commands);
                 }
             }
-            WindowEvent::KeyboardInput(input) if windows.contains(input.window) && focused => {
+            WindowEvent::KeyboardInput(input)
+                if windows.contains(input.window) && focused && !ownership.suspended =>
+            {
                 let input = input.clone();
                 commands.queue(move |world: &mut World| dispatch_menu_key(world, input));
             }
             WindowEvent::TouchInput(touch) if windows.contains(touch.window) => {
                 let key = (touch.window, touch.id);
+                let mut ui_owned = ownership.touch_captures.contains_key(&key);
                 match touch.phase {
-                    TouchPhase::Started if focused => {
+                    TouchPhase::Started if focused && !ownership.suspended => {
                         let window = windows.get(touch.window).unwrap();
                         if let Some(entity) = control_at(touch.position * window.scale_factor()) {
+                            ui_owned = true;
                             ownership.touch_captures.insert(key, entity);
                             ownership.ui_touches.insert(key);
                             commands
@@ -204,6 +245,7 @@ fn capture_menu_input(
                         if let Some(entity) = ownership.touch_captures.remove(&key)
                             && touch.phase == TouchPhase::Ended
                             && focused
+                            && !ownership.suspended
                             && windows.get(touch.window).is_ok_and(|window| {
                                 control_at(touch.position * window.scale_factor()) == Some(entity)
                             })
@@ -212,6 +254,11 @@ fn capture_menu_input(
                         }
                     }
                     TouchPhase::Started | TouchPhase::Moved => {}
+                }
+                if focused && !ownership.suspended && !ui_owned {
+                    ownership
+                        .backdrop_touches
+                        .push(BackdropTouchInput::Touch(*touch));
                 }
             }
             WindowEvent::CursorMoved(event) => {
@@ -227,7 +274,7 @@ fn capture_menu_input(
             {
                 saw_mouse_input = true;
                 ownership.mouse_pressed = event.state == ButtonState::Pressed;
-                if event.state == ButtonState::Pressed && focused {
+                if event.state == ButtonState::Pressed && focused && !ownership.suspended {
                     ownership.mouse_capture = ownership.mouse_position.and_then(control_at);
                     captured_this_frame |= ownership.mouse_capture.is_some();
                     if let Some(entity) = ownership.mouse_capture {
@@ -238,6 +285,7 @@ fn capture_menu_input(
                 } else if event.state == ButtonState::Released
                     && let Some(entity) = ownership.mouse_capture.take()
                     && focused
+                    && !ownership.suspended
                     && !ownership.mouse_cancelled
                     && ownership.mouse_position.and_then(control_at) == Some(entity)
                 {
@@ -253,7 +301,8 @@ fn capture_menu_input(
                     || ownership.mouse_capture.is_some()
                     || ownership.mouse_cancelled
                     || !ownership.ui_touches.is_empty()
-                    || !focused;
+                    || !focused
+                    || ownership.suspended;
                 if event.phase == TouchPhase::Started {
                     ownership.scroll_owner = Some(if over_control {
                         ScrollOwner::Menu
@@ -274,7 +323,7 @@ fn capture_menu_input(
         }
     }
     ownership.window_focused = Some(focused);
-    ownership.hovered = if focused {
+    ownership.hovered = if focused && !ownership.suspended {
         windows
             .single()
             .ok()
@@ -284,7 +333,7 @@ fn capture_menu_input(
         None
     };
     // Applications may also supply Bevy's direct mouse input without WindowEvent.
-    if !saw_mouse_input && focused {
+    if !saw_mouse_input && focused && !ownership.suspended {
         if mouse.just_pressed(MouseButton::Left) {
             ownership.mouse_capture = ownership.hovered;
             captured_this_frame |= ownership.mouse_capture.is_some();
@@ -303,7 +352,8 @@ fn capture_menu_input(
         }
         ownership.mouse_pressed = mouse.pressed(MouseButton::Left);
     }
-    ownership.blocks_mouse = captured_this_frame || ownership.mouse_cancelled || !focused;
+    ownership.blocks_mouse =
+        captured_this_frame || ownership.mouse_cancelled || !focused || ownership.suspended;
     ownership.blocks_scroll = ownership.blocks_mouse
         || match ownership.scroll_owner {
             Some(ScrollOwner::Menu) => true,
