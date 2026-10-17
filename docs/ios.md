@@ -109,9 +109,9 @@ can corroborate actual presentation and GPU behavior.
 Physical results and device acceptance are recorded in
 [native launch baseline](ios-baseline.md), which describes the initial launch
 milestone. The shared startup menu now provides tap controls for New Game, Load
-Game, and Settings, with Quit omitted on iPhone and iPad. Touch camera gestures,
-the full responsive layout, and the final 60 fps target belong to the remaining
-native-support tickets.
+Game, and Settings, with Quit omitted on iPhone and iPad. Touch camera gestures now share the desktop camera behavior; their verification
+status is recorded below. The full responsive layout and final 60 fps target
+remain in the later native-support tickets.
 
 ## Desktop smoke
 
@@ -178,6 +178,83 @@ full responsive layout and physical-device performance tuning continue in
 [#13](https://github.com/madebyjeffrey/rust-demos/issues/13).
 
 
+## Touch-navigation acceptance — 2026-10-17
+
+[Ticket #11](https://github.com/madebyjeffrey/rust-demos/issues/11) is implemented
+in [PR #18](https://github.com/madebyjeffrey/rust-demos/pull/18). One backdrop
+finger orbits continuously through the poles; two backdrop fingers change bounded
+zoom. Adding, removing or cancelling fingers rebases the remaining gesture.
+Focus loss and application suspension discard stale tracking. A touch beginning
+on a control retains UI ownership even outside its bounds; independent backdrop
+touches can still orbit or pinch around it. Galaxy and companion idle motion
+pauses while touches are held, then resumes after release. Mouse drag and wheel
+zoom continue to use the existing camera behavior.
+
+All 50 workspace tests pass, including 11 new assembled-app regressions supplying
+real touch, window-focus and lifecycle messages. They cover movement without
+replaying held deltas, zoom bounds, pole crossings, finger transitions,
+cancellation, reused touch IDs and ordered event batches, UI/backdrop ownership,
+and galaxy/companion idle coordination. Formatting, strict all-target Clippy and
+diff checks pass. The independent standards and spec reviews have no remaining
+actionable findings after sharing the orbit and interruption-reset logic.
+
+The reviewed source at `00449ba` builds a development-signed ARM64 iOS release.
+Signature verification and installation succeeded on both registered baseline
+devices. The installed executable has SHA-256:
+
+```text
+048aaf2a882bbc42fa1b01f27345734016ec94b7f6969666649af854dc232a80
+```
+
+| Physical device | OS | Signed release | Gesture acceptance |
+| --- | --- | --- | --- |
+| iPhone 17 Pro | iOS 27.0.1 | Installed and verified | Pass (2026-10-17) |
+| iPad mini (6th generation) | iPadOS 27.0.1 | Installed and verified | Pass (2026-10-16) |
+
+The iPad was released after the independent #12 layout checks. Before installing
+#11 again, the signed bundle's executable hash was verified against the value
+above. A temporary signed XCTest runner then launched that #11 build in portrait
+and completed the native gesture sequence in 40.410 seconds with zero failures:
+a backdrop drag, three further vertical drags through the poles, pinch in both
+directions, a fresh single-finger orbit after pinching, a drag beginning on New
+Game followed by a fresh tap, and background/reactivation followed by another
+orbit. Eight retained screenshots were inspected: camera orbit changes the
+backdrop, pinch changes its scale, the UI-owned drag preserves camera framing,
+and the final fresh drag responds after interruption. The temporary iPad runner
+was removed and the reviewed #11 app was left foreground. The #12 binary and
+results were not used as #11 gesture evidence.
+
+The iPhone became available on 2026-10-17. Device access was coordinated with
+#12: #11 used exclusive slots, then explicitly handed the phone back for #12's
+independent layout checks and final installation. The same verified #11 signed
+binary completed the final native gesture sequence in 44.887 seconds with zero
+failures. All eight whole-screen captures were inspected without notification
+overlays. They show orbit and pole-crossing changes, pinch scaling in both
+directions, a fresh orbit after pinching, unchanged camera framing during the
+UI-owned drag, and a working new orbit after background/reactivation. The runner
+restored the original device orientation and was removed before handback.
+
+An earlier iPhone run had a transient system notification intercept several
+gestures despite the runner reporting success; that run was excluded from
+acceptance. The clean runner dismissed notification banners before gestures and
+rejected captures when a banner interrupted a gesture. No notification contents
+or personal device/signing identifiers are part of the acceptance record.
+
+Both baseline devices now pass physical gesture acceptance for #11. PR #18 is
+ready for review and closes the issue when merged. The #12 layout build and its
+results remain separate from this touch-navigation evidence.
+
+To repeat acceptance after unlocking the devices and authorizing native UI
+automation, launch the installed release in portrait and inspect the rendered
+backdrop. Drag in unused space, continue vertical drags through the poles, pinch
+in both directions, then orbit again. Add and remove a pinch finger and cancel a
+gesture using a system interruption; the next gesture must resume without a
+jump. Drag from a menu control into the backdrop and confirm that the camera
+stays still while the UI owns the gesture, then verify a fresh backdrop gesture.
+Background and reactivate the app, and verify fresh orbit and menu taps. Repeat on both devices
+and record settled before/after screenshots and the source/binary identity.
+Temporary native test results and signing material stay local under ignored
+`target/ios/` or the temporary acceptance directory.
 ## Responsive-layout acceptance — 2026-10-16
 
 [Ticket #12](https://github.com/madebyjeffrey/rust-demos/issues/12) is implemented
@@ -253,3 +330,19 @@ Raw results and screenshots remain local, with device identifiers and signing
 material excluded from source control. Both baseline devices now have completed
 physical layout acceptance for #12; PR #19 can proceed to review. This record
 does not claim #11 gesture acceptance or #13 performance acceptance.
+
+## Touch and responsive-layout integration — 2026-10-17
+
+The combined #18/#19 code uses relative zoom for both pinch and mouse-wheel
+input, applying their shared bounds after all input for the frame. This resolves
+the removed `GalaxyCamera.distance` reference and keeps pinch zoom bounded even
+when no wheel event arrives. Both independent physical acceptance records above
+are retained.
+
+All 54 combined workspace tests pass, including a new input-driven regression
+that compares pinch and wheel zoom bounds through repeated portrait, landscape,
+multitasking and original-window transitions at 1×/2×/3× display scales. That
+regression failed with a field rename alone and passed after sharing the clamp.
+Formatting, strict all-target Clippy and the `aarch64-apple-ios` release build
+also pass. Physical-device acceptance was not rerun for this integration change;
+the hardware evidence above applies to the recorded independent builds.
