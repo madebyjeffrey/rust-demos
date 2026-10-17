@@ -9,6 +9,7 @@ import datetime
 import fnmatch
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -107,7 +108,17 @@ def build():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["build", "install", "launch", "baseline", "screenshot"])
+    parser.add_argument("--scenario", default="baseline", help="Name recorded in the capture (letters, digits, '_' or '-').")
+    parser.add_argument("--warmup-seconds", type=float, default=10.0)
+    parser.add_argument("--steady-seconds", type=float, default=60.0)
+    parser.add_argument("--output", type=Path, help="Raw baseline log destination (default: target/ios/baseline.log).")
     args = parser.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", args.scenario):
+        parser.error("--scenario must be 1–64 letters, digits, underscores or hyphens, beginning with a letter or digit.")
+    for name in ("warmup_seconds", "steady_seconds"):
+        value = getattr(args, name)
+        if not math.isfinite(value) or not 0.1 <= value <= 600:
+            parser.error(f"--{name.replace('_', '-')} must be between 0.1 and 600 seconds.")
     BUILD.mkdir(parents=True, exist_ok=True)
     if args.action == "build":
         build()
@@ -121,11 +132,18 @@ def main():
         command = ["xcrun", "devicectl", "device", "process", "launch", *common, "--terminate-existing", "--quiet"]
         if args.action == "baseline":
             command.remove("--quiet")
-            command += ["--console", "--environment-variables", '{"GALAXY_FRAME_BASELINE":"1"}']
-            log = BUILD / "baseline.log"
+            environment = {
+                "GALAXY_FRAME_BASELINE": "1",
+                "GALAXY_BASELINE_SCENARIO": args.scenario,
+                "GALAXY_BASELINE_WARMUP_SECONDS": f"{args.warmup_seconds:g}",
+                "GALAXY_BASELINE_STEADY_SECONDS": f"{args.steady_seconds:g}",
+            }
+            command += ["--console", "--environment-variables", json.dumps(environment)]
+            log = args.output.expanduser().resolve() if args.output else BUILD / "baseline.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("wb") as output:
                 process = subprocess.Popen([*command, BUNDLE_ID], stdout=output, stderr=subprocess.STDOUT)
-                deadline = time.monotonic() + 120
+                deadline = time.monotonic() + args.warmup_seconds + args.steady_seconds + 50
                 try:
                     while process.poll() is None:
                         if "GALAXY_COMPLETE" in log.read_text(errors="replace"):
@@ -147,8 +165,10 @@ def main():
                 raise RuntimeError("Baseline launch/capture failed; inspect target/ios/baseline.log locally.")
             if not all(any(line.startswith(f"GALAXY_SUMMARY {phase} ") for line in lines) for phase in ("warmup", "steady")):
                 raise RuntimeError("Baseline did not finish both measurement phases; inspect target/ios/baseline.log locally.")
+            if not all(any(line.startswith(f"GALAXY_FRAME {phase} ") for line in lines) for phase in ("warmup", "steady")):
+                raise RuntimeError("Baseline is missing raw frame samples; inspect the capture log locally.")
             for line in lines:
-                if line.startswith(("GALAXY_STARTUP", "GALAXY_CONFIG", "GALAXY_SUMMARY")):
+                if line.startswith(("GALAXY_CAPTURE", "GALAXY_STARTUP", "GALAXY_CONFIG", "GALAXY_SUMMARY", "GALAXY_EVENTS")):
                     print(line)
         else:
             private_output([*command, BUNDLE_ID])
