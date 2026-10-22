@@ -1,0 +1,9 @@
+[package]
+name = "composable-ui-prototype"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bevy-composable-ui = { path = "../../crates/bevy-composable-ui" }
+bevy = { version = "0.20.0", default-features = false, features = ["2d", "ui", "default_font"] }

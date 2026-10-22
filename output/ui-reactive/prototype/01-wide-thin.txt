@@ -1,0 +1,12 @@
+01-wide-thin
+profile: Thin
+compact: false
+samples: 0
+retained display entities: [390v0, 434v0, 447v0]
+keyed order: [1, 2, 3]
+retained sensors: [(1, 427v0), (3, 431v0), (2, 429v0)]
+focused sensor: 429v0
+binding diagnostics: clear
+slot 0 logical size: Vec2(478.0, 443.0)
+slot 1 logical size: Vec2(478.0, 443.0)
+slot 2 logical size: Vec2(1008.0, 82.0)
