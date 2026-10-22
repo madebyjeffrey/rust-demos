@@ -12,7 +12,10 @@ use bevy::{
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
     ui_widgets::Activate,
 };
-use bevy_composable_ui::{FrameDiagnostic, ViewDiagnostic};
+use bevy_composable_ui::{
+    ExitingView, FrameDiagnostic, FrameRegionsSystems, TransitionPhase, TransitionStatus,
+    ViewDiagnostic, ViewTransitionSystems,
+};
 use std::path::PathBuf;
 
 #[derive(Resource)]
@@ -24,6 +27,8 @@ struct Replay {
     ready_at: f64,
     identities: Vec<Entity>,
     keyed: Vec<(u64, Entity)>,
+    motion_seen: [bool; 3],
+    motion_pending: usize,
 }
 
 const NAMES: [&str; 5] = [
@@ -49,9 +54,17 @@ pub fn install(app: &mut App) {
         ready_at: 0.,
         identities: vec![],
         keyed: vec![],
+        motion_seen: [false; 3],
+        motion_pending: 0,
     })
     .add_systems(Update, replay)
-    .add_systems(Startup, capture_target.after(crate::setup));
+    .add_systems(Startup, capture_target.after(crate::setup))
+    .add_systems(
+        PostUpdate,
+        capture_motion
+            .after(ViewTransitionSystems)
+            .after(FrameRegionsSystems),
+    );
 }
 
 #[expect(
@@ -97,7 +110,7 @@ fn replay(
         ][step];
         root.0.y = 0.;
         if step == 0 {
-            let entity = keyed.iter().find(|(_, item, _)| item.0 == 2).unwrap().0;
+            let entity = keyed.iter().find(|(_, item, _)| item.0 == 1).unwrap().0;
             focus.set(entity, FocusCause::Navigated);
         }
         if step == 2 {
@@ -127,7 +140,7 @@ fn replay(
         return;
     }
     if time.elapsed_secs_f64() < replay.ready_at {
-        if replay.step == 3 {
+        if replay.step == 3 && time.elapsed_secs_f64() > replay.ready_at - 1. {
             root.0.y = ((root.1.content_size().y - root.1.size().y)
                 * root.1.inverse_scale_factor())
             .max(0.);
@@ -173,7 +186,7 @@ fn replay(
             "keyed sensor entity is retained"
         );
     }
-    let selected = current.iter().find(|(key, _)| *key == 2).unwrap().1;
+    let selected = current.iter().find(|(key, _)| *key == 1).unwrap().1;
     assert_eq!(
         focus.get(),
         Some(selected),
@@ -217,6 +230,13 @@ fn replay(
     );
     assert_eq!(count.0, format!("{} samples recorded", state.samples));
     assert!(bindings.iter().all(|status| status.0.is_none()));
+    if replay.step == NAMES.len() - 1 {
+        assert!(
+            replay.motion_seen.iter().all(|seen| *seen),
+            "all transition phases rendered"
+        );
+        assert_eq!(replay.motion_pending, 0, "motion screenshots completed");
+    }
     let name = NAMES[replay.step];
     assert_eq!(frames.iter().count(), 1);
     assert!(
@@ -305,4 +325,60 @@ fn capture_target(
         .insert((RenderTarget::Image(image.clone().into()), IsDefaultUiCamera));
     commands.entity(*root).insert(UiTargetCamera(*camera));
     commands.insert_resource(CaptureImage(image));
+}
+
+// Inspect a transition after layout, while its entities are actually in motion.
+fn capture_motion(
+    mut commands: Commands,
+    mut replay: ResMut<Replay>,
+    nodes: Query<(Entity, &ReadingControl, &TransitionStatus, Has<ExitingView>)>,
+    focus: Res<InputFocus>,
+    image: Res<CaptureImage>,
+) {
+    let step = replay.step;
+    let (index, name, expected, key) = match step {
+        1 => (0, "motion-reorder", TransitionPhase::Moving, 1),
+        2 => (1, "motion-insert", TransitionPhase::Entering, 4),
+        3 => (2, "motion-remove", TransitionPhase::Exiting, 4),
+        _ => return,
+    };
+    if replay.motion_seen[index] {
+        return;
+    }
+    let Some((entity, _, status, exiting)) = nodes.iter().find(|(_, item, status, _)| {
+        item.0 == key && status.phase == expected && (0.3..0.8).contains(&status.progress)
+    }) else {
+        return;
+    };
+    assert_eq!(exiting, expected == TransitionPhase::Exiting);
+    for (key, retained) in &replay.keyed {
+        let (current, _, _, exiting) = nodes.iter().find(|(_, item, _, _)| item.0 == *key).unwrap();
+        assert_eq!(current, *retained, "identity is retained during motion");
+        assert!(!exiting);
+        if *key == 1 {
+            assert_eq!(
+                focus.get(),
+                Some(current),
+                "focus is retained during motion"
+            );
+        }
+    }
+    let path = replay.directory.join(format!("{name}.png"));
+    std::fs::write(replay.directory.join(format!("{name}.txt")),
+        format!("phase: {:?}\nprogress: {:.3}\nentity: {entity:?}\nfocus: {:?}\nidentity/focus during motion: retained\n", status.phase, status.progress, focus.get())).unwrap();
+    replay.motion_seen[index] = true;
+    replay.motion_pending += 1;
+    commands.spawn(Screenshot::image(image.0.clone())).observe(
+        move |image: On<ScreenshotCaptured>, mut replay: ResMut<Replay>| {
+            let image = image.image.clone().try_into_dynamic().unwrap();
+            assert!(
+                image
+                    .to_rgba8()
+                    .pixels()
+                    .any(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+            );
+            image.save(&path).unwrap();
+            replay.motion_pending -= 1;
+        },
+    );
 }

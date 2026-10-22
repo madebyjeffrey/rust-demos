@@ -1,0 +1,5 @@
+phase: Moving
+progress: 0.315
+entity: 428v0
+focus: Some(428v0)
+identity/focus during motion: retained

@@ -1,0 +1,5 @@
+phase: Entering
+progress: 0.319
+entity: 445v0
+focus: Some(423v0)
+identity/focus during motion: retained

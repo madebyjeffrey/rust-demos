@@ -11,6 +11,7 @@
 mod geometry;
 mod reactive;
 mod render;
+mod transitions;
 pub mod views;
 
 pub use geometry::{Anchor, AxisAnchor, FrameError, FrameGeometry, Rail, SharedFrame};
@@ -19,11 +20,16 @@ pub use reactive::{
     ReactiveViewsSystems, ViewDiagnostic, ViewError, ViewKey, ViewNode, reconcile,
 };
 pub use render::{FrameDiagnostic, FrameRegionsPlugin, FrameRegionsSystems};
+pub use transitions::{
+    ExitingView, TransitionPhase, TransitionSettings, TransitionStatus, ViewTransition,
+    ViewTransitionSystems,
+};
 
 pub mod prelude {
     pub use crate::views::{Element, Label, View, Views, column, grid, row, text};
     pub use crate::{Anchor, AxisAnchor, FrameDiagnostic, FrameRegionsPlugin, Rail, SharedFrame};
     pub use crate::{
-        Binding, ComposableUiPlugin, ReactiveViewsPlugin, ViewDiagnostic, ViewKey, ViewNode,
+        Binding, ComposableUiPlugin, ExitingView, ReactiveViewsPlugin, TransitionPhase,
+        TransitionSettings, TransitionStatus, ViewDiagnostic, ViewKey, ViewNode, ViewTransition,
     };
 }

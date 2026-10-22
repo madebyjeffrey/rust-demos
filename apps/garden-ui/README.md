@@ -27,8 +27,13 @@ garden-specific shader or copied composition implementation.
   focused native buttons.
 - Wheel/trackpad, **Page Up / Page Down / Home / End** scroll short windows.
 
+Plant chips use 520 ms horizontal slide/scale transitions for insertion/removal
+and glide to their new slots on reorder. Their entity IDs and focus outlines
+travel with the plants. Rapid edits retarget from the current pose. Removed
+plants immediately stop accepting input, then finish their visual exit.
+
 ```sh
-cargo run -p garden-ui -- --capture-dir output/ui-library/garden
+cargo run -p garden-ui -- --capture-dir output/ui-transitions/garden
 ```
 
 The replay captures wide, fine-line, compact and restored layouts. It activates
@@ -41,3 +46,5 @@ text refresh system is used. The replay checks focused keyed identities, child
 order, automatic text updates and binding diagnostics. Capture mode uses an
 offscreen target for deterministic GPU images, while interactive runs use the
 normal window target.
+Three additional `motion-*.png` captures and reports verify retained identity
+and focus during reordering, insertion and removal.

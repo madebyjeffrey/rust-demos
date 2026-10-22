@@ -1,0 +1,6 @@
+02-garden-fine
+compact: false
+fine: true
+watering sessions: 2
+retained plots: [392v0, 411v0, 418v0]
+frame diagnostics: clear

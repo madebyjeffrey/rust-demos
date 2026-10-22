@@ -239,7 +239,7 @@ fn plots() -> impl View {
         text("03 / FIELD JOURNAL", 10., GREEN),
         text("Today's observations", 18., INK),
         plants(),
-        text("Tab to a plant. R reverses; focus stays put.", 10., CLAY),
+        text("R reverses with motion. N adds; D removes.", 10., CLAY),
     ));
     let mut frame = grid((
         lead.tagged(Plot(0)),
@@ -561,6 +561,12 @@ fn plants() -> impl View {
                         .expect("plant binding")
                 })
                 .key(id)
+                .transition(ViewTransition {
+                    duration: std::time::Duration::from_millis(520),
+                    enter_offset: Vec2::new(18., 0.),
+                    exit_offset: Vec2::new(-18., 0.),
+                    edge_scale: 0.75,
+                })
             })
             .collect::<Vec<_>>())
         .gap(6.);

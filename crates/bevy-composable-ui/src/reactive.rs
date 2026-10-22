@@ -211,6 +211,8 @@ pub enum ViewError {
     TooDeep,
     NotMounted(Entity),
     Binding(BindingError),
+    InvalidTransition,
+    TransitionRequiresKey,
 }
 impl fmt::Display for ViewError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -239,6 +241,7 @@ pub struct ViewNode {
     pub(crate) paint: Option<(Color, Color)>,
     pub(crate) initials: Vec<Initializer>,
     pub(crate) activation: Option<Action>,
+    pub(crate) transition: Option<crate::ViewTransition>,
     source: Option<Arc<dyn Source>>,
     children: Vec<ViewNode>,
 }
@@ -253,6 +256,7 @@ impl ViewNode {
             paint: None,
             initials: vec![],
             activation: None,
+            transition: None,
             source: None,
             children,
         }
@@ -272,12 +276,12 @@ struct Mounted {
     children: Vec<Entity>,
 }
 #[derive(Component)]
-struct ReactiveRoot {
+pub(crate) struct ReactiveRoot {
     source: Arc<dyn Source>,
     selected: Option<Snapshot>,
 }
 #[derive(Component)]
-struct Activation(Action);
+pub(crate) struct Activation(Action);
 
 pub struct ComposableUiPlugin;
 impl Plugin for ComposableUiPlugin {
@@ -291,6 +295,7 @@ pub struct ReactiveViewsSystems;
 pub struct ReactiveViewsPlugin;
 impl Plugin for ReactiveViewsPlugin {
     fn build(&self, app: &mut App) {
+        crate::transitions::install(app);
         app.init_resource::<InputFocus>()
             .add_observer(activate)
             .add_systems(
@@ -337,7 +342,7 @@ pub fn reconcile(world: &mut World, root: Entity, view: impl View) -> Result<Ent
     let node = view.into_node();
     let depth = mounted_depth(world, root);
     validate(&node, depth)?;
-    if world.get::<Mounted>(root).is_none() {
+    if world.get::<Mounted>(root).is_none() || world.get::<crate::ExitingView>(root).is_some() {
         return Err(ViewError::NotMounted(root));
     }
     let parent = world.get::<ChildOf>(root).map(ChildOf::parent);
@@ -369,6 +374,14 @@ fn validate(node: &ViewNode, depth: usize) -> Result<(), ViewError> {
     if depth >= 64 {
         return Err(ViewError::TooDeep);
     }
+    if let Some(transition) = &node.transition {
+        if node.key.is_none() {
+            return Err(ViewError::TransitionRequiresKey);
+        }
+        if !transition.valid() {
+            return Err(ViewError::InvalidTransition);
+        }
+    }
     let mut keys = HashSet::new();
     for child in &node.children {
         if let Some(key) = &child.key
@@ -392,6 +405,7 @@ fn put<C: Component<Mutability = bevy::ecs::component::Mutable> + PartialEq>(
 }
 
 fn properties(world: &mut World, entity: Entity, node: &mut ViewNode) {
+    crate::transitions::configure(world, entity, node.transition);
     if let Some(value) = node.node.take() {
         put(world, entity, value);
     }
@@ -471,6 +485,12 @@ fn reconcile_node(world: &mut World, entity: Entity, mut node: ViewNode, depth: 
 
 fn reconcile_children(world: &mut World, parent: Entity, children: Vec<ViewNode>, depth: usize) {
     let old = world.get::<Mounted>(parent).unwrap().children.clone();
+    let mut departing: Vec<_> = world
+        .get::<Children>(parent)
+        .into_iter()
+        .flat_map(|children| children.iter())
+        .filter(|e| world.get::<crate::ExitingView>(*e).is_some())
+        .collect();
     let keyed: HashMap<_, _> = old
         .iter()
         .filter_map(|e| {
@@ -497,12 +517,24 @@ fn reconcile_children(world: &mut World, parent: Entity, children: Vec<ViewNode>
         };
         next.push(entity);
     }
+    let changed = old != next;
     for entity in old {
         if !next.contains(&entity) {
-            unmount(world, entity);
+            clear_focus(world, entity);
+            if crate::transitions::retire(world, entity) {
+                departing.push(entity);
+            } else {
+                unmount(world, entity);
+            }
         }
     }
-    world.entity_mut(parent).replace_children(&next);
+    if changed {
+        for entity in &next {
+            crate::transitions::relayout(world, *entity);
+        }
+    }
+    let all: Vec<_> = next.iter().chain(&departing).copied().collect();
+    world.entity_mut(parent).replace_children(&all);
     world.get_mut::<Mounted>(parent).unwrap().children = next;
 }
 
@@ -510,6 +542,11 @@ fn unmount(world: &mut World, entity: Entity) {
     if world.get_entity(entity).is_err() {
         return;
     }
+    clear_focus(world, entity);
+    world.despawn(entity);
+}
+
+fn clear_focus(world: &mut World, entity: Entity) {
     let focus = world.get_resource::<InputFocus>().and_then(InputFocus::get);
     let mut cursor = focus;
     while let Some(current) = cursor {
@@ -519,7 +556,6 @@ fn unmount(world: &mut World, entity: Entity) {
         }
         cursor = world.get::<ChildOf>(current).map(ChildOf::parent);
     }
-    world.despawn(entity);
 }
 
 fn refresh_binding(world: &mut World, entity: Entity, depth: usize) {

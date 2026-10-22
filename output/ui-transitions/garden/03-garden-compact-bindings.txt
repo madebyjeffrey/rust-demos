@@ -1,0 +1,4 @@
+keyed order: [3, 2, 1, 4]
+retained plants: [(3, 427v0), (2, 425v0), (4, 445v0), (1, 423v0)]
+focused plant: 423v0
+binding diagnostics: clear

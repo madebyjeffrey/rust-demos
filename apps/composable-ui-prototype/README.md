@@ -36,6 +36,11 @@ to increment its value through a writable `Binding`. The amber ring marks focus.
 - **N / Add** appends a new keyed sensor (up to five).
 - **D / Remove** removes the last sensor; focus clears if it was focused.
 
+Chips slide vertically and scale on insertion/removal over 420 ms. Reordering
+slides retained chips to their new slots, including their focus outlines.
+Rapid edits retarget the current motion. Removed chips immediately stop accepting
+input and release their layout space, then finish their visual exit.
+
 Use the shortcuts while a chip has focus to see it stay on the same sensor
 through reorder and insertion. Clicking a separate button moves focus normally.
 Counters, chart bars, chip labels and status text use `Binding::view`; there is
@@ -67,7 +72,7 @@ Decorative entities ignore picking, leaving the controls interactive.
 ## Reproduce the visual review
 
 ```sh
-cargo run -p composable-ui-prototype -- --capture-dir output/ui-prototype
+cargo run -p composable-ui-prototype -- --capture-dir output/ui-transitions/prototype
 ```
 
 This opens a real rendered window, activates the same typed button events,
@@ -80,6 +85,8 @@ session and a working graphics adapter. Capture mode renders the same camera/UI
 to an offscreen image so native surface availability does not affect captures;
 interactive runs use the normal window target. It also checks keyed sensor IDs,
 child order, focused entity, bound text, and clear binding diagnostics.
+Three additional `motion-*.png` captures and reports check identity and focus
+while reordering, insertion and removal are still animating.
 
 ## Prototype boundary
 

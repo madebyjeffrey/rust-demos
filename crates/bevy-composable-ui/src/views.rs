@@ -19,6 +19,13 @@ pub trait View: Sized {
         node
     }
 
+    /// Animate this keyed view's insertion, movement and removal.
+    fn transition(self, transition: crate::ViewTransition) -> ViewNode {
+        let mut node = self.into_node();
+        node.transition = Some(transition);
+        node
+    }
+
     /// Connect a native `Activate` event. The current handler replaces the previous one on update.
     /// Add Bevy's headless `Button` behavior and `Pickable::default()` with `tagged`.
     fn on_activate(self, action: impl Fn(&mut World) + Send + Sync + 'static) -> ViewNode {
