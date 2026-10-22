@@ -1,8 +1,10 @@
 [workspace]
 members = [
     "apps/galaxy-menu",
+    "apps/lcars-console",
     "apps/composable-ui-prototype",
     "apps/garden-ui",
+    "crates/lcars-ui",
     "crates/bevy-composable-ui",
 ]
 default-members = ["apps/galaxy-menu"]
