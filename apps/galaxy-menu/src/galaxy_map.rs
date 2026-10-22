@@ -1,12 +1,18 @@
-//! Assembles the camera, galaxy geometry, and destination markers into the scene.
+//! Assembles the camera and stellar and gas geometry of the galaxy backdrop.
+
+use std::collections::HashMap;
 
 use bevy::{
     core_pipeline::prepass::DepthPrepass,
-    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
+    input::{
+        mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
+        touch::TouchPhase,
+    },
     picking::Pickable,
     post_process::bloom::Bloom,
     prelude::*,
     render::view::Tonemapping,
+    transform::TransformPlugin,
 };
 
 use crate::{
@@ -15,7 +21,7 @@ use crate::{
         GAS_HALF_HEIGHT, GalaxyDustUniform, GalaxyGas, GalaxyGasMaterial,
         build_galaxy_medium_volumes, register_gas_material,
     },
-    planet::{PlanetId, PlanetMarker},
+    menu::{BackdropTouchInput, MenuInputOwnership},
     starfield::{
         GALAXY_RADIUS, StarMaterial, build_background_starfield, build_galaxy_starfield,
         register_star_material,
@@ -26,26 +32,28 @@ const GALAXY_CENTER: Vec3 = Vec3::new(7.4, 0.0, 0.0);
 const CAMERA_TARGET: Vec3 = Vec3::new(3.8, 0.0, 0.0);
 const ORBIT_SENSITIVITY: f32 = 0.005;
 const MIN_CAMERA_DISTANCE: f32 = 18.0;
-const MAX_CAMERA_DISTANCE: f32 = 72.0;
+// Bound magnification relative to the full-window fit so a narrow viewport
+// does not consume the entire zoom range.
+const MAX_RELATIVE_ZOOM: f32 = 4.0;
 const ZOOM_SENSITIVITY: f32 = 0.12;
 const IDLE_ROTATION_RADIANS_PER_SECOND: f32 = 0.035;
 const FRAMING_VIEWPORT_FRACTION: f32 = 0.9;
-// Include the outer stars' size and the height of planet highlights above the disk.
+// Include the outer stars' size and the full thickness of the gas.
 const GALAXY_FRAMING_RADIUS: f32 = GALAXY_RADIUS + 0.1;
 const GALAXY_FRAMING_HALF_HEIGHT: f32 = GAS_HALF_HEIGHT;
 
-/// Stable transform anchor for the galaxy map's contents.
+/// Stable transform anchor for the galaxy backdrop's rotating contents.
 ///
 /// Later scene motion can rotate this entity without moving the camera or
 /// background star field.
 #[derive(Component, Debug)]
 pub struct GalaxyRoot;
 
-/// Marks decorative geometry that should never intercept planet picking.
+/// Marks the main galaxy's stellar geometry.
 #[derive(Component, Debug)]
 pub struct GalaxyDecorative;
 
-/// Marks the stationary backdrop so it can be excluded from picking and found in tests.
+/// Marks the stationary background stars surrounding the galaxy backdrop.
 #[derive(Component, Debug)]
 pub struct BackgroundStarfield;
 
@@ -53,19 +61,52 @@ pub struct BackgroundStarfield;
 struct GalaxyCamera {
     target: Vec3,
     orientation: Quat,
-    distance: f32,
+    relative_zoom: f32,
+}
+
+impl GalaxyCamera {
+    fn orbit(&mut self, drag: Vec2) {
+        // Use the current view axes to remain continuous through the poles.
+        let delta = drag * -ORBIT_SENSITIVITY;
+        let rotation = Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
+        self.orientation = (self.orientation * rotation).normalize();
+    }
+}
+
+#[derive(Resource, Default)]
+pub(super) struct TouchNavigation {
+    positions: HashMap<(Entity, u64), Vec2>,
+    ui_touch_active: bool,
+}
+
+impl TouchNavigation {
+    pub(super) fn is_active(&self) -> bool {
+        !self.positions.is_empty() || self.ui_touch_active
+    }
+
+    fn pinch_span(&self) -> Option<f32> {
+        if self.positions.len() != 2 {
+            return None;
+        }
+        let mut positions = self.positions.values();
+        Some(positions.next()?.distance(*positions.next()?))
+    }
 }
 
 type GalaxyCameraFilter = (Without<GalaxyRoot>, Without<GalaxyCompanion>);
 
-/// Adds the scene and schedules free camera orbit, bounded zoom, and idle map rotation.
+/// Adds the backdrop and schedules free camera orbit, bounded zoom, and idle rotation.
 pub struct GalaxyMapPlugin;
 
 impl Plugin for GalaxyMapPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<TransformPlugin>() {
+            app.add_plugins(TransformPlugin);
+        }
         register_gas_material(app);
         register_star_material(app);
         app.init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<TouchNavigation>()
             .init_resource::<Assets<Image>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<AccumulatedMouseScroll>()
@@ -73,6 +114,7 @@ impl Plugin for GalaxyMapPlugin {
             .add_systems(
                 Update,
                 (
+                    touch_galaxy_camera,
                     rotate_galaxy_map,
                     update_companion_orbits,
                     sync_galaxy_dust,
@@ -86,7 +128,6 @@ impl Plugin for GalaxyMapPlugin {
 fn setup_galaxy_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut star_materials: ResMut<Assets<StarMaterial>>,
     mut gas_materials: ResMut<Assets<GalaxyGasMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -101,8 +142,6 @@ fn setup_galaxy_map(
         CAMERA_TARGET.y + 18.0,
         CAMERA_TARGET.z + 31.0,
     );
-    let camera_offset = camera_position - CAMERA_TARGET;
-    let camera_distance = camera_offset.length();
     let camera_transform =
         Transform::from_translation(camera_position).looking_at(CAMERA_TARGET, Vec3::Y);
     commands.spawn((
@@ -114,7 +153,7 @@ fn setup_galaxy_map(
         GalaxyCamera {
             target: CAMERA_TARGET,
             orientation: camera_transform.rotation,
-            distance: camera_distance,
+            relative_zoom: 1.12,
         },
     ));
 
@@ -151,8 +190,8 @@ fn setup_galaxy_map(
         dust_settings,
     ));
 
-    // Place the galaxy right of the camera target to leave a clear area for the menu on the left.
-    // Parenting its geometry and planets together keeps idle rotation local to the map.
+    // Retain the initial composition while fitting to the whole window. Menu overlays
+    // do not reserve a separate scene viewport or change the camera framing.
     let root = commands
         .spawn((GalaxyRoot, Visibility::default(), galaxy_transform))
         .id();
@@ -169,57 +208,6 @@ fn setup_galaxy_map(
             GalaxyGas,
             Pickable::IGNORE,
         ));
-    });
-
-    let planet_mesh = meshes.add(Sphere::new(0.32).mesh().ico(3).unwrap());
-    // Positions and marker lighting are scene data; names and card copy live with PlanetId.
-    let planet_definitions = [
-        (
-            PlanetId::Vesper,
-            Vec3::new(-5.8, 0.10, 3.2),
-            Color::srgb(0.52, 0.81, 1.0),
-            LinearRgba::rgb(1.8, 6.0, 11.0),
-        ),
-        (
-            PlanetId::Kestrel,
-            Vec3::new(-2.1, -0.12, -4.2),
-            Color::srgb(1.0, 0.59, 0.40),
-            LinearRgba::rgb(11.0, 2.4, 0.7),
-        ),
-        (
-            PlanetId::Solace,
-            Vec3::new(2.4, 0.14, 5.8),
-            Color::srgb(0.79, 0.57, 1.0),
-            LinearRgba::rgb(5.0, 1.8, 11.0),
-        ),
-        (
-            PlanetId::Meridian,
-            Vec3::new(5.8, -0.08, 1.5),
-            Color::srgb(1.0, 0.75, 0.43),
-            LinearRgba::rgb(11.0, 5.0, 1.0),
-        ),
-        (
-            PlanetId::Halcyon,
-            Vec3::new(3.8, 0.09, -7.2),
-            Color::srgb(0.43, 0.91, 0.84),
-            LinearRgba::rgb(0.8, 8.0, 6.4),
-        ),
-    ];
-
-    commands.entity(root).with_children(|children| {
-        for (id, position, base_color, emissive) in planet_definitions {
-            let material = materials.add(StandardMaterial {
-                base_color,
-                emissive,
-                ..default()
-            });
-            children.spawn((
-                PlanetMarker { id },
-                Mesh3d(planet_mesh.clone()),
-                MeshMaterial3d(material),
-                Transform::from_translation(position),
-            ));
-        }
     });
 }
 
@@ -243,6 +231,52 @@ fn sync_galaxy_dust(
     }
 }
 
+fn touch_galaxy_camera(
+    mut cameras: Query<&mut GalaxyCamera>,
+    menu_input: Option<Res<MenuInputOwnership>>,
+    mut touch_navigation: ResMut<TouchNavigation>,
+) {
+    let Ok(mut camera) = cameras.single_mut() else {
+        return;
+    };
+    if let Some(input) = &menu_input {
+        touch_navigation.ui_touch_active = input.has_active_touches();
+        for event in &input.backdrop_touches {
+            let BackdropTouchInput::Touch(touch) = event else {
+                touch_navigation.positions.clear();
+                continue;
+            };
+            let key = (touch.window, touch.id);
+            match touch.phase {
+                TouchPhase::Started => {
+                    touch_navigation.positions.insert(key, touch.position);
+                }
+                TouchPhase::Moved => {
+                    let previous_span = touch_navigation.pinch_span();
+                    let count = touch_navigation.positions.len();
+                    if let Some(previous) = touch_navigation.positions.get_mut(&key) {
+                        let delta = touch.position - *previous;
+                        *previous = touch.position;
+                        if count == 1 {
+                            camera.orbit(delta);
+                        }
+                        if let (Some(previous), Some(current)) =
+                            (previous_span, touch_navigation.pinch_span())
+                            && previous > f32::EPSILON
+                            && current > f32::EPSILON
+                        {
+                            camera.relative_zoom *= previous / current;
+                        }
+                    }
+                }
+                TouchPhase::Ended | TouchPhase::Canceled => {
+                    touch_navigation.positions.remove(&key);
+                }
+            }
+        }
+    }
+}
+
 fn orbit_galaxy_camera(
     mut cameras: Query<(&mut Transform, &mut GalaxyCamera, &Projection), GalaxyCameraFilter>,
     galaxies: Query<&Transform, With<GalaxyRoot>>,
@@ -250,25 +284,27 @@ fn orbit_galaxy_camera(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
+    menu_input: Option<Res<MenuInputOwnership>>,
 ) {
     let Ok((mut transform, mut camera, projection)) = cameras.single_mut() else {
         return;
     };
 
-    // Rotate around the current view axes so dragging stays continuous through the poles.
-    if mouse_buttons.pressed(MouseButton::Left) {
-        let delta = mouse_motion.delta * -ORBIT_SENSITIVITY;
-        let rotation = Quat::from_rotation_y(delta.x) * Quat::from_rotation_x(delta.y);
-        camera.orientation = (camera.orientation * rotation).normalize();
+    if mouse_buttons.pressed(MouseButton::Left)
+        && !menu_input.as_ref().is_some_and(|input| input.blocks_mouse)
+    {
+        camera.orbit(mouse_motion.delta);
     }
 
     let scroll = match mouse_scroll.unit {
         MouseScrollUnit::Line => mouse_scroll.delta.y,
         MouseScrollUnit::Pixel => mouse_scroll.delta.y / 100.0,
     };
-    if scroll != 0.0 {
-        camera.distance *= (-scroll * ZOOM_SENSITIVITY).exp();
+    if scroll != 0.0 && !menu_input.as_ref().is_some_and(|input| input.blocks_scroll) {
+        camera.relative_zoom *= (-scroll * ZOOM_SENSITIVITY).exp();
     }
+    // Clamp after both touch and wheel input, including frames without wheel events.
+    camera.relative_zoom = camera.relative_zoom.clamp(1.0, MAX_RELATIVE_ZOOM);
 
     let direction = camera.orientation * Vec3::Z;
     let orientation = Transform::from_rotation(camera.orientation);
@@ -281,15 +317,10 @@ fn orbit_galaxy_camera(
             companions.iter(),
         )
     });
-    if camera.is_added() {
-        // Start just outside the fitted scene, leaving room for the first zoom gesture.
-        camera.distance = camera.distance.max(minimum_distance * 1.12);
-    }
-    // Recheck every frame: orbit, idle rotation, and viewport resizing can all change the fit.
-    camera.distance = camera
-        .distance
-        .clamp(minimum_distance, MAX_CAMERA_DISTANCE.max(minimum_distance));
-    transform.translation = camera.target + direction * camera.distance;
+    // Orbit, idle motion, and viewport resizing can all change the fitted
+    // distance. Keep the user's bounded zoom relative to that fit, so returning
+    // from portrait or a multitasking window never loses their chosen view.
+    transform.translation = camera.target + direction * minimum_distance * camera.relative_zoom;
     transform.rotation = orientation.rotation;
 }
 
@@ -343,11 +374,13 @@ fn rotate_galaxy_map(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
+    touch_navigation: Res<TouchNavigation>,
 ) {
     // Pause the idle motion while the user is manipulating the view.
     if mouse_buttons.pressed(MouseButton::Left)
         || mouse_motion.delta != Vec2::ZERO
         || mouse_scroll.delta != Vec2::ZERO
+        || touch_navigation.is_active()
     {
         return;
     }

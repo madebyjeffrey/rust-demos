@@ -7,7 +7,7 @@ use bevy::{
 };
 
 use crate::{
-    galaxy_map::GalaxyRoot,
+    galaxy_map::{GalaxyRoot, TouchNavigation},
     starfield::{StableRandom, StarMaterial, StarMeshBuilder},
 };
 
@@ -17,7 +17,7 @@ pub enum GalaxyCompanionKind {
     GlobularCluster,
 }
 
-/// Decorative stellar systems, separate from the selectable destination markers.
+/// Stellar companions orbiting independently around the galaxy backdrop.
 #[derive(Component, Debug)]
 pub struct GalaxyCompanion {
     pub kind: GalaxyCompanionKind,
@@ -203,10 +203,12 @@ pub(super) fn update_companion_orbits(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
+    touch_navigation: Res<TouchNavigation>,
 ) {
     if mouse_buttons.pressed(MouseButton::Left)
         || mouse_motion.delta != Vec2::ZERO
         || mouse_scroll.delta != Vec2::ZERO
+        || touch_navigation.is_active()
     {
         return;
     }

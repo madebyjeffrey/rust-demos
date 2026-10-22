@@ -41,7 +41,7 @@ fn fragment(input: GasFragment) -> @location(0) vec4<f32> {
     var exit = interval.y;
 
     @if(DEPTH_PREPASS) {
-        // Stop at opaque planet markers rather than fogging light behind their surface.
+        // Respect the scene depth when compositing the galaxy's diffuse light.
         let depth = prepass_depth(input.position, 0u);
         if depth > 0.0 {
             let uv = (input.position.xy - view.viewport.xy) / view.viewport.zw;
