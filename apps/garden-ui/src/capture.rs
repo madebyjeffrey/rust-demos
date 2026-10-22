@@ -9,7 +9,10 @@ use bevy::{
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
     ui_widgets::Activate,
 };
-use bevy_composable_ui::{FrameDiagnostic, ViewDiagnostic};
+use bevy_composable_ui::{
+    ExitingView, FrameDiagnostic, FrameRegionsSystems, TransitionPhase, TransitionStatus,
+    ViewDiagnostic, ViewTransitionSystems,
+};
 use std::path::PathBuf;
 
 #[derive(Resource)]
@@ -21,6 +24,8 @@ struct Capture {
     ready: f64,
     identities: Vec<Entity>,
     keyed: Vec<(u64, Entity)>,
+    motion_seen: [bool; 3],
+    motion_pending: usize,
 }
 const NAMES: [&str; 4] = [
     "01-garden-grid",
@@ -42,9 +47,17 @@ pub fn install(app: &mut App) {
             ready: 0.,
             identities: vec![],
             keyed: vec![],
+            motion_seen: [false; 3],
+            motion_pending: 0,
         })
         .add_systems(Update, capture)
-        .add_systems(Startup, capture_target.after(crate::setup));
+        .add_systems(Startup, capture_target.after(crate::setup))
+        .add_systems(
+            PostUpdate,
+            capture_motion
+                .after(ViewTransitionSystems)
+                .after(FrameRegionsSystems),
+        );
     }
 }
 
@@ -83,7 +96,7 @@ fn capture(
         target.resize(w as u32, h as u32);
         root.y = 0.;
         if capture.step == 0 {
-            let entity = keyed.iter().find(|(_, item, _)| item.0 == 2).unwrap().0;
+            let entity = keyed.iter().find(|(_, item, _)| item.0 == 1).unwrap().0;
             focus.set(entity, FocusCause::Navigated);
         }
         if capture.step == 2 {
@@ -144,7 +157,7 @@ fn capture(
     for identity in &capture.keyed {
         assert!(current.contains(identity), "keyed plant entity is retained");
     }
-    let selected = current.iter().find(|(key, _)| *key == 2).unwrap().1;
+    let selected = current.iter().find(|(key, _)| *key == 1).unwrap().1;
     assert_eq!(
         focus.get(),
         Some(selected),
@@ -188,6 +201,13 @@ fn capture(
     );
     assert_eq!(count.0, format!("{} watering sessions", state.watered));
     assert!(bindings.iter().all(|status| status.0.is_none()));
+    if capture.step == NAMES.len() - 1 {
+        assert!(
+            capture.motion_seen.iter().all(|seen| *seen),
+            "all transition phases rendered"
+        );
+        assert_eq!(capture.motion_pending, 0, "motion screenshots completed");
+    }
     let name = NAMES[capture.step];
     std::fs::write(capture.dir.join(format!("{name}.txt")), format!("{name}\ncompact: {}\nfine: {}\nwatering sessions: {}\nretained plots: {:?}\nframe diagnostics: clear\n", state.compact, state.fine, state.watered, ids)).expect("write report");
     std::fs::write(capture.dir.join(format!("{name}-bindings.txt")),format!("keyed order: {order:?}\nretained plants: {current:?}\nfocused plant: {selected:?}\nbinding diagnostics: clear\n")).unwrap();
@@ -258,4 +278,60 @@ fn capture_target(
         .insert((RenderTarget::Image(image.clone().into()), IsDefaultUiCamera));
     commands.entity(*root).insert(UiTargetCamera(*camera));
     commands.insert_resource(CaptureImage(image));
+}
+
+// Inspect a transition after layout, while its entities are actually in motion.
+fn capture_motion(
+    mut commands: Commands,
+    mut capture: ResMut<Capture>,
+    nodes: Query<(Entity, &PlantControl, &TransitionStatus, Has<ExitingView>)>,
+    focus: Res<InputFocus>,
+    image: Res<CaptureImage>,
+) {
+    let step = capture.step;
+    let (index, name, expected, key) = match step {
+        1 => (0, "motion-reorder", TransitionPhase::Moving, 1),
+        2 => (1, "motion-insert", TransitionPhase::Entering, 4),
+        3 => (2, "motion-remove", TransitionPhase::Exiting, 4),
+        _ => return,
+    };
+    if capture.motion_seen[index] {
+        return;
+    }
+    let Some((entity, _, status, exiting)) = nodes.iter().find(|(_, item, status, _)| {
+        item.0 == key && status.phase == expected && (0.3..0.8).contains(&status.progress)
+    }) else {
+        return;
+    };
+    assert_eq!(exiting, expected == TransitionPhase::Exiting);
+    for (key, retained) in &capture.keyed {
+        let (current, _, _, exiting) = nodes.iter().find(|(_, item, _, _)| item.0 == *key).unwrap();
+        assert_eq!(current, *retained, "identity is retained during motion");
+        assert!(!exiting);
+        if *key == 1 {
+            assert_eq!(
+                focus.get(),
+                Some(current),
+                "focus is retained during motion"
+            );
+        }
+    }
+    let path = capture.dir.join(format!("{name}.png"));
+    std::fs::write(capture.dir.join(format!("{name}.txt")),
+        format!("phase: {:?}\nprogress: {:.3}\nentity: {entity:?}\nfocus: {:?}\nidentity/focus during motion: retained\n", status.phase, status.progress, focus.get())).unwrap();
+    capture.motion_seen[index] = true;
+    capture.motion_pending += 1;
+    commands.spawn(Screenshot::image(image.0.clone())).observe(
+        move |image: On<ScreenshotCaptured>, mut capture: ResMut<Capture>| {
+            let image = image.image.clone().try_into_dynamic().unwrap();
+            assert!(
+                image
+                    .to_rgba8()
+                    .pixels()
+                    .any(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+            );
+            image.save(&path).unwrap();
+            capture.motion_pending -= 1;
+        },
+    );
 }

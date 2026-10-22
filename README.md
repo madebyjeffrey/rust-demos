@@ -59,6 +59,8 @@ dark telemetry prototype. See [the garden guide](apps/garden-ui/README.md).
 composition and anchored shared frame regions, including its embedded shader.
 It also provides declarative resource bindings and keyed reconciliation that
 preserve local state and focus across compatible updates and reordering.
+Keyed views can opt into animated insertion, removal and movement transitions;
+both demos include them on their interactive collections.
 Both UI demos depend on it through a Cargo path dependency. The
 [library guide](crates/bevy-composable-ui/README.md) describes usage, geometry
 contracts, limitations and validation commands.

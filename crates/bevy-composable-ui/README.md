@@ -135,6 +135,64 @@ child hierarchies; update models or use `reconcile(world, root, view)` instead o
 editing those relationships directly. That function returns a potentially new
 root ID when its key or kind changes.
 
+## Animated keyed transitions
+
+Opt in on the keyed view itself; the two demos use the same interface with
+different durations, offsets and scale:
+
+```rust,no_run
+use bevy::prelude::*;
+use bevy_composable_ui::prelude::*;
+use std::time::Duration;
+
+fn chip(id: u64) -> impl View {
+    text(format!("Item {id}"), 14., Color::WHITE)
+        .padding(12.)
+        .key(id)
+        .transition(ViewTransition {
+            duration: Duration::from_millis(400),
+            enter_offset: Vec2::new(0., 16.),
+            exit_offset: Vec2::new(0., -16.),
+            edge_scale: 0.65,
+        })
+}
+```
+
+- Insertions slide and scale from the configured edge pose. Reordering and
+  sibling insertions/removals interpolate retained views to their new positions
+  using smoothstep easing. Rapid edits retarget from the current displayed pose.
+  Native entity IDs, local state and focus remain intact.
+- Bevy still computes the final layout once per frame. Motion corrects
+  `UiGlobalTransform` for the view and its descendants after layout and before
+  clipping and frame resolution. It preserves user `UiTransform` values; picking
+  uses the displayed transforms on the following input frame, as normal in Bevy.
+  Scrolling and responsive reflow continue to use native layout. They do not
+  start new transitions by themselves.
+- Removal ends the item's active lifetime immediately: focus in its subtree
+  clears, bindings/activation stop, picking is ignored and tab targets are removed.
+  An `ExitingView` marker identifies the retained paint and its descendants.
+  It leaves layout flow immediately, remains under its original parent for the
+  exit duration, then despawns. Reinserting its key creates a new entity even
+  while the old paint exits. Replacing incompatible kinds/tags remains immediate.
+- `Children` includes departing paint until cleanup. Application queries that
+  represent active items should use `Without<ExitingView>`. Despawning the owner
+  also removes its pending exits. Nested transitions compose; a parent's exit
+  takes ownership of its whole subtree.
+- `TransitionStatus` exposes phase and linear time progress. `ViewTransitionSystems`
+  is the ordering point for observers that need the displayed geometry.
+- Transitions require sibling keys and finite offsets with a positive finite
+  scale. Invalid declarations fail atomically with `ViewDiagnostic`, just like
+  duplicate keys. A zero duration is immediate. Views without `.transition`
+  retain their existing immediate behavior.
+- The plugin uses Bevy's `Time` resource, normally supplied by `DefaultPlugins`
+  or `MinimalPlugins`. Paused time pauses motion. For reduced-motion preferences,
+  set `TransitionSettings::enabled` to `false`: active motion settles and pending
+  exits despawn on the next transition update, with surviving focus retained.
+
+This implementation animates position and uniform scale of ordinary UI subtrees.
+It does not interpolate layout allocation, morph paths, fade paint, or animate
+separate fixed-position/camera render roots inside a transitioning subtree.
+
 ## Anchored frame regions
 
 Attach `SharedFrame` to a normal UI container. Each `Rail` is an orthogonal
@@ -197,14 +255,18 @@ or platform-specific text editing/accessibility integration.
 ```sh
 cargo test -p bevy-composable-ui
 cargo clippy -p bevy-composable-ui -p composable-ui-prototype -p garden-ui --all-targets -- -D warnings
-cargo run -p composable-ui-prototype -- --capture-dir output/ui-library/original
-cargo run -p garden-ui -- --capture-dir output/ui-library/garden
+cargo run -p composable-ui-prototype -- --capture-dir output/ui-transitions/prototype
+cargo run -p garden-ui -- --capture-dir output/ui-transitions/garden
 ```
 
 The public-interface tests exercise composition, binding reads/writes, selective
 updates, keyed reordering/insertion/removal, focus and local-state retention,
 callback replacement, rejected-update recovery and bounded recursive bindings.
+Real-layout transition tests cover intermediate geometry, interruptions, descendant
+motion, removal cleanup/input suppression, reduced motion and invalid declarations.
 Geometry tests cover anchor resolution, four curve orientations, resize behavior
 and failures. Both rendered replays verify retained entity identities, focused
 controls, bound text, sibling order, responsive layouts and clear diagnostics.
 Replay captures render to an offscreen GPU target; normal launches use the window.
+Both replays also capture `motion-reorder`, `motion-insert`, and `motion-remove`
+frames, asserting retained identity and focus during the transitions.

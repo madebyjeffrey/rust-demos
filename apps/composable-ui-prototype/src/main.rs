@@ -306,11 +306,7 @@ fn telemetry() -> impl View {
         metric,
         chart,
         readings(),
-        text(
-            "Tab to a sensor. R reverses without moving focus.",
-            10.,
-            QUIET,
-        ),
+        text("R reverses with motion. N adds; D removes.", 10., QUIET),
     ))
 }
 
@@ -421,6 +417,12 @@ fn readings() -> impl View {
                         .expect("sensor binding")
                 })
                 .key(id)
+                .transition(ViewTransition {
+                    duration: std::time::Duration::from_millis(420),
+                    enter_offset: Vec2::new(0., 16.),
+                    exit_offset: Vec2::new(0., -16.),
+                    edge_scale: 0.55,
+                })
             })
             .collect::<Vec<_>>())
         .gap(6.);

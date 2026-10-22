@@ -60,6 +60,7 @@ impl Plugin for FrameRegionsPlugin {
                 PostUpdate,
                 resolve_frames
                     .after(UiSystems::Layout)
+                    .after(crate::ViewTransitionSystems)
                     .in_set(FrameRegionsSystems),
             );
     }
