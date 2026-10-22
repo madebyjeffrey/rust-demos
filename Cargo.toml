@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/galaxy-menu"]
+members = ["apps/galaxy-menu", "apps/lcars-console", "crates/lcars-ui"]
 default-members = ["apps/galaxy-menu"]
 resolver = "3"
 

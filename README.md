@@ -2,6 +2,43 @@
 
 Independent Bevy demos live in the workspace under `apps/`.
 
+## Reusable LCARS UI
+
+The workspace includes [`lcars-ui`](crates/lcars-ui/README.md), a reusable Bevy UI
+crate. It provides a framed screen, proportional columns, sections, buttons,
+radio groups, toggles, readouts, and progress bars. See the
+[science-console composition](apps/lcars-console/src/ui.rs) for the main example.
+
+A smaller, independent engineering screen demonstrates the same interface:
+
+```sh
+cargo run -p lcars-ui --example engineering
+```
+
+## LCARS Console
+
+Launch the LCARS-inspired science console with:
+
+```sh
+cargo run -p lcars-console
+```
+
+The console uses Bevy's native UI, with a curved segmented frame, orange and
+lavender controls, and an animated simulated sensor display. Choose a target
+sector and scan profile with single-choice radio groups, then independently
+enable any combination of the three sensor channels. Initiate Scan starts a
+timed survey; Hold pauses it, Resume Scan continues it, and Reset Console restores
+the defaults. Changing the configuration resets the current scan. At least one
+channel must be enabled before scanning. Completed surveys increment the archive
+counter. Telemetry is illustrative and does not connect to external services.
+
+Click controls, or use Tab / Shift+Tab to move focus. Use arrow keys (or Home / End)
+within a radio group, and Enter / Space to activate buttons and channel toggles.
+Hover, press, focus, and selection have visible feedback. The console scales to
+fit the desktop window, with a minimum size of 960×600 logical points.
+
+Run its interaction tests with `cargo test -p lcars-console`.
+
 ## Galaxy Menu
 
 Launch the first demo with:
