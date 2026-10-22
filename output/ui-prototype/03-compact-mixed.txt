@@ -1,0 +1,8 @@
+03-compact-mixed
+profile: Mixed
+compact: true
+samples: 3
+retained display entities: [414v0, 427v0, 434v0]
+slot 0 logical size: Vec2(392.0, 190.0)
+slot 1 logical size: Vec2(392.0, 190.0)
+slot 2 logical size: Vec2(392.0, 82.0)

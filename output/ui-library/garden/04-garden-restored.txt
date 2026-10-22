@@ -1,0 +1,6 @@
+04-garden-restored
+compact: false
+fine: false
+watering sessions: 2
+retained plots: [398v0, 404v0, 409v0]
+frame diagnostics: clear

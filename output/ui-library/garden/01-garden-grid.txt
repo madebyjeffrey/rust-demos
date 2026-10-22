@@ -1,0 +1,6 @@
+01-garden-grid
+compact: false
+fine: false
+watering sessions: 0
+retained plots: [398v0, 404v0, 409v0]
+frame diagnostics: clear

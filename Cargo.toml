@@ -1,5 +1,10 @@
 [workspace]
-members = ["apps/galaxy-menu"]
+members = [
+    "apps/galaxy-menu",
+    "apps/composable-ui-prototype",
+    "apps/garden-ui",
+    "crates/bevy-composable-ui",
+]
 default-members = ["apps/galaxy-menu"]
 resolver = "3"
 
