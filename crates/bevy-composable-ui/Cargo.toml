@@ -1,0 +1,9 @@
+[package]
+name = "bevy-composable-ui"
+version = "0.1.0"
+edition = "2024"
+description = "Composable Bevy views and anchored shared frame regions"
+publish = false
+
+[dependencies]
+bevy = { version = "0.20.0", default-features = false, features = ["ui_api", "ui_bevy_render", "bevy_picking", "bevy_ui_widgets"] }

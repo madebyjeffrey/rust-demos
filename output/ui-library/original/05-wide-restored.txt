@@ -1,0 +1,8 @@
+05-wide-restored
+profile: Mixed
+compact: false
+samples: 3
+retained display entities: [414v0, 427v0, 434v0]
+slot 0 logical size: Vec2(478.0, 343.0)
+slot 1 logical size: Vec2(478.0, 343.0)
+slot 2 logical size: Vec2(1008.0, 82.0)
